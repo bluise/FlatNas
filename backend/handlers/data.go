@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -26,6 +27,7 @@ var socketServer *socketio.Server
 type getDataCacheEntry struct {
 	dataMod    time.Time
 	sysMod     time.Time
+	memoSig    string
 	response   map[string]interface{}
 	accessTime time.Time
 }
@@ -35,6 +37,77 @@ var getDataCacheMu sync.RWMutex
 var memoFileMu sync.Mutex
 var memoSaveIdempotencyCache = map[string]memoSaveIdempotencyEntry{}
 var memoSaveIdempotencyMu sync.Mutex
+
+// memoFilesSignature 用该用户全部 memo 文件的 (文件名, mtime, 大小) 计算指纹。
+//
+// SaveMemo 只写 memo_*.json，不会改动 data.json 的 mtime，因此 /api/data 的缓存与 ETag
+// 只看 data.json / system.json 的 mtime 时无法感知 memo 的修改（尤其是清空/删除），
+// 会在缓存有效期内继续返回旧备忘 —— 表现为"已经删掉的内容又冒出来"。
+//
+// 这里读的是文件系统而不是进程内计数器，所以**多副本部署**下任一副本写入 memo，
+// 其它副本也能通过指纹变化察觉（进程内版本号做不到这一点）。
+func memoFilesSignature(username string) string {
+	pattern := filepath.Join(config.DataDir, "memo_"+sanitizeMemoID(username)+"_*.json")
+	matches, err := filepath.Glob(pattern)
+	if err != nil || len(matches) == 0 {
+		return "empty"
+	}
+	sort.Strings(matches)
+	h := sha256.New()
+	for _, path := range matches {
+		info, statErr := os.Stat(path)
+		if statErr != nil {
+			continue
+		}
+		fmt.Fprintf(h, "%s|%d|%d;", filepath.Base(path), info.ModTime().UnixNano(), info.Size())
+	}
+	return fmt.Sprintf("%x", h.Sum(nil))
+}
+
+// invalidateGetDataCache 丢弃某用户 /api/data 的内存缓存，让下一次请求重新读盘并对齐 memo 文件。
+func invalidateGetDataCache(userFile string) {
+	getDataCacheMu.Lock()
+	delete(getDataCache, userFile+"|auth")
+	delete(getDataCache, userFile+"|guest")
+	getDataCacheMu.Unlock()
+}
+
+// userDataLocks 按用户数据文件串行化"读-改-写"。
+// 之前 SaveSingleWidget / SaveData 都是先 ReadJSON 再 WriteJSON，两次加锁不覆盖整个流程，
+// 并发保存会互相覆盖（典型表现就是 Todo / 备忘丢条目）。
+var userDataLocks sync.Map
+
+// lockUserData 串行化对某个用户数据文件的读-改-写：
+// 进程内互斥（userDataLocks）+ 跨进程文件锁（多副本部署时才有意义）。
+func lockUserData(userFile string) func() {
+	value, _ := userDataLocks.LoadOrStore(userFile, &sync.Mutex{})
+	mu := value.(*sync.Mutex)
+	mu.Lock()
+	releaseFile, err := utils.AcquireFileLock(userFile+".lock", utils.FileLockTimeout)
+	if err != nil {
+		log.Printf("lockUserData: 跨进程锁获取失败 file=%s err=%v（退化为进程内锁）", userFile, err)
+		releaseFile = func() {}
+	}
+	return func() {
+		releaseFile()
+		mu.Unlock()
+	}
+}
+
+// lockMemoFile 串行化对某个 memo 文件的读-改-写（同样含跨进程锁）。
+// memoFileMu 作为进程内锁保留，语义与改动前一致。
+func lockMemoFile(memoFile string) func() {
+	memoFileMu.Lock()
+	releaseFile, err := utils.AcquireFileLock(memoFile+".lock", utils.FileLockTimeout)
+	if err != nil {
+		log.Printf("lockMemoFile: 跨进程锁获取失败 file=%s err=%v（退化为进程内锁）", memoFile, err)
+		releaseFile = func() {}
+	}
+	return func() {
+		releaseFile()
+		memoFileMu.Unlock()
+	}
+}
 
 const maxCacheEntries = 20
 
@@ -268,15 +341,16 @@ func latestModTime(a, b time.Time) time.Time {
 	return b
 }
 
-func buildGetDataETag(username, userFile string, isGuest bool, dataMod, sysMod time.Time, dataSize int64) string {
+func buildGetDataETag(username, userFile string, isGuest bool, dataMod, sysMod time.Time, dataSize int64, memoSig string) string {
 	payload := fmt.Sprintf(
-		"%s|%s|%t|%d|%d|%d",
+		"%s|%s|%t|%d|%d|%d|%s",
 		username,
 		userFile,
 		isGuest,
 		dataMod.UnixNano(),
 		sysMod.UnixNano(),
 		dataSize,
+		memoSig,
 	)
 	sum := sha256.Sum256([]byte(payload))
 	return fmt.Sprintf("\"%x\"", sum[:])
@@ -350,8 +424,10 @@ func GetData(c *gin.Context) {
 		dataSize = userInfo.Size()
 	}
 	etag := ""
+	memoSig := ""
 	if userStatErr == nil {
-		etag = buildGetDataETag(username, userFile, isGuest, dataMod, sysMod, dataSize)
+		memoSig = memoFilesSignature(username)
+		etag = buildGetDataETag(username, userFile, isGuest, dataMod, sysMod, dataSize, memoSig)
 	}
 	setGetDataCacheHeaders(c, etag, dataMod, sysMod)
 	if requestHasMatchingETag(c, etag) {
@@ -369,7 +445,7 @@ func GetData(c *gin.Context) {
 		getDataCacheMu.RLock()
 		entry, ok := getDataCache[cacheKey]
 		getDataCacheMu.RUnlock()
-		if ok && entry.dataMod.Equal(dataMod) && entry.sysMod.Equal(sysMod) {
+		if ok && entry.dataMod.Equal(dataMod) && entry.sysMod.Equal(sysMod) && entry.memoSig == memoSig {
 			getDataCacheMu.Lock()
 			entry.accessTime = time.Now()
 			getDataCache[cacheKey] = entry
@@ -396,7 +472,7 @@ func GetData(c *gin.Context) {
 			if refreshedInfo, statErr := os.Stat(userFile); statErr == nil {
 				dataMod = refreshedInfo.ModTime()
 				dataSize = refreshedInfo.Size()
-				etag = buildGetDataETag(username, userFile, isGuest, dataMod, sysMod, dataSize)
+				etag = buildGetDataETag(username, userFile, isGuest, dataMod, sysMod, dataSize, memoSig)
 				setGetDataCacheHeaders(c, etag, dataMod, sysMod)
 			}
 		}
@@ -469,29 +545,11 @@ func GetData(c *gin.Context) {
 	}
 
 	// Align memo widget data with memo files to avoid rollback on full refresh
-	if widgets, ok := userData["widgets"].([]interface{}); ok {
-		for _, w := range widgets {
-			widgetMap, ok := w.(map[string]interface{})
-			if !ok {
-				continue
-			}
-			wType, _ := widgetMap["type"].(string)
-			if wType != "memo" {
-				continue
-			}
-			widgetID, _ := widgetMap["id"].(string)
-			if widgetID == "" {
-				continue
-			}
-			memoFile := memoFilePath(username, widgetID)
-			memoFileMu.Lock()
-			data, err := ensureMemoFile(userFile, memoFile, widgetID, widgetMap["data"], userData)
-			memoFileMu.Unlock()
-			if err != nil {
-				continue
-			}
-			widgetMap["data"] = data
-		}
+	// 只有首次迁移允许从 data.json 回填；迁移完成后缺失的 memo 文件按"已删除"处理
+	allowMemoLegacyFallback := memoLegacyFallbackAllowed(username)
+	if alignedMemos := alignMemoWidgetData(username, userFile, userData, allowMemoLegacyFallback); alignedMemos > 0 && allowMemoLegacyFallback {
+		// 全部 memo 文件都已对齐后才落迁移标记
+		markMemoMigrationDone(username)
 	}
 
 	if userStatErr == nil && !sysMod.IsZero() {
@@ -500,6 +558,7 @@ func GetData(c *gin.Context) {
 		getDataCache[cacheKey] = getDataCacheEntry{
 			dataMod:    dataMod,
 			sysMod:     sysMod,
+			memoSig:    memoSig,
 			response:   userData,
 			accessTime: time.Now(),
 		}
@@ -573,6 +632,16 @@ func GetWidget(c *gin.Context) {
 	for _, w := range widgets {
 		if widgetMap, ok := w.(map[string]interface{}); ok {
 			if wId, ok := widgetMap["id"].(string); ok && wId == id {
+				// memo widget 的 data.json 镜像可能落后于 memo 文件，必须先对齐再返回
+				if wType, _ := widgetMap["type"].(string); wType == "memo" {
+					memoFile := memoFilePath(username, wId)
+					unlockMemo := lockMemoFile(memoFile)
+					aligned, err := ensureMemoFile(userFile, memoFile, wId, widgetMap["data"], userData, memoLegacyFallbackAllowed(username))
+					unlockMemo()
+					if err == nil {
+						widgetMap["data"] = aligned
+					}
+				}
 				data, _ := widgetMap["data"]
 				c.JSON(http.StatusOK, gin.H{"success": true, "data": data})
 				return
@@ -616,6 +685,15 @@ func GetWidgetsBatch(c *gin.Context) {
 		return
 	}
 
+	// 与 /api/data 保持一致：先把 memo widget 的镜像对齐到 memo 文件，
+	// 否则增量同步会把旧备忘推给客户端。
+	allowMemoLegacyFallback := memoLegacyFallbackAllowed(username)
+	if alignedMemos := alignMemoWidgetData(username, userFile, userData, allowMemoLegacyFallback); alignedMemos > 0 && allowMemoLegacyFallback {
+		markMemoMigrationDone(username)
+	}
+	// 对齐后重新取一次 widgets 切片（元素是 map 指针，内容已被就地更新）
+	widgets, _ = userData["widgets"].([]interface{})
+
 	idSet := make(map[string]bool, len(req.IDs))
 	for _, id := range req.IDs {
 		idSet[id] = true
@@ -655,6 +733,27 @@ func memoFilePath(username, widgetID string) string {
 	return filepath.Join(config.DataDir, "memo_"+safeUser+"_"+safeWidget+".json")
 }
 
+// removeUserMemoFiles 删除该用户所有的 memo 存储文件。
+// 重置数据时必须一并删除：否则 /api/data 的对齐逻辑会用残留的 memo 文件把旧备忘重新填回，
+// 表现为"重置之后以前删掉的内容又回来了"。
+func removeUserMemoFiles(username string) int {
+	pattern := filepath.Join(config.DataDir, "memo_"+sanitizeMemoID(username)+"_*.json")
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		log.Printf("removeUserMemoFiles glob failed user=%s err=%v", username, err)
+		return 0
+	}
+	removed := 0
+	for _, path := range matches {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			log.Printf("removeUserMemoFiles remove failed file=%s err=%v", path, err)
+			continue
+		}
+		removed++
+	}
+	return removed
+}
+
 func extractMemoContentFromWidgetData(data interface{}) string {
 	if text, ok := data.(string); ok {
 		return text
@@ -683,6 +782,81 @@ func loadMemoFallbackContent(userFile, widgetID string) string {
 	return extractMemoFromUserData(userData, widgetID)
 }
 
+// memoMigrationMarkerPath 记录某用户是否已完成 memo 落盘迁移。
+func memoMigrationMarkerPath(username string) string {
+	return filepath.Join(config.DataDir, "memo_migrated_"+sanitizeMemoID(username)+".json")
+}
+
+// memoLegacyFallbackAllowed 是否允许在 memo 文件缺失时从 data.json 回填旧内容。
+// 仅在首次迁移（标记文件尚未写入）时允许。
+func memoLegacyFallbackAllowed(username string) bool {
+	if username == "" {
+		return false
+	}
+	if _, err := os.Stat(memoMigrationMarkerPath(username)); err == nil {
+		return false
+	} else if !os.IsNotExist(err) {
+		// 其它错误（权限等）时保守处理：不回填
+		return false
+	}
+	return true
+}
+
+// markMemoMigrationDone 标记该用户已完成一次 memo 迁移对齐（幂等）。
+func markMemoMigrationDone(username string) {
+	if username == "" {
+		return
+	}
+	marker := memoMigrationMarkerPath(username)
+	if _, err := os.Stat(marker); err == nil {
+		return
+	}
+	if err := utils.WriteJSON(marker, map[string]interface{}{
+		"migratedAt": time.Now().UnixMilli(),
+		"version":    1,
+	}); err != nil {
+		log.Printf("markMemoMigrationDone failed user=%s err=%v", username, err)
+	}
+}
+
+// alignMemoWidgetData 用 memo 文件内容覆盖 data.json 里的 memo widget 镜像。
+//
+// data.json 里的 memo data 只是镜像，可能落后于独立的 memo 文件（SaveMemo 只写 memo 文件）。
+// 任何会把 widget data 交给客户端的接口都必须先对齐，否则客户端会拿到旧备忘，
+// 再把它当成"服务端最新"应用回来 —— 这正是"删掉的备忘又冒出来"的一条通道。
+//
+// 返回对齐过的 memo widget 数量。
+func alignMemoWidgetData(username, userFile string, userData map[string]interface{}, allowLegacyFallback bool) int {
+	widgets, ok := userData["widgets"].([]interface{})
+	if !ok {
+		return 0
+	}
+	aligned := 0
+	for _, w := range widgets {
+		widgetMap, ok := w.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if wType, _ := widgetMap["type"].(string); wType != "memo" {
+			continue
+		}
+		widgetID, _ := widgetMap["id"].(string)
+		if widgetID == "" {
+			continue
+		}
+		memoFile := memoFilePath(username, widgetID)
+		unlockMemo := lockMemoFile(memoFile)
+		data, err := ensureMemoFile(userFile, memoFile, widgetID, widgetMap["data"], userData, allowLegacyFallback)
+		unlockMemo()
+		if err != nil {
+			continue
+		}
+		widgetMap["data"] = data
+		aligned++
+	}
+	return aligned
+}
+
 // extractMemoFromUserData 从已解析的 data.json 中查找 memo 内容，避免对每个 memo 重复读盘解析整份配置。
 func extractMemoFromUserData(userData map[string]interface{}, widgetID string) string {
 	if userData == nil || widgetID == "" {
@@ -706,7 +880,7 @@ func extractMemoFromUserData(userData map[string]interface{}, widgetID string) s
 	return ""
 }
 
-func ensureMemoFile(userFile, memoFile, widgetID string, preloadedData interface{}, userData map[string]interface{}) (MemoFileData, error) {
+func ensureMemoFile(userFile, memoFile, widgetID string, preloadedData interface{}, userData map[string]interface{}, allowLegacyFallback bool) (MemoFileData, error) {
 	var data MemoFileData
 	if err := utils.ReadJSON(memoFile, &data); err == nil {
 		if data.Mode != "simple" && data.Mode != "rich" {
@@ -724,14 +898,18 @@ func ensureMemoFile(userFile, memoFile, widgetID string, preloadedData interface
 		return data, err
 	}
 	content := ""
-	if preloadedData != nil {
-		content = extractMemoContentFromWidgetData(preloadedData)
-	}
-	if content == "" && userData != nil {
-		content = extractMemoFromUserData(userData, widgetID)
-	}
-	if content == "" {
-		content = loadMemoFallbackContent(userFile, widgetID)
+	// 只有在首次迁移阶段才允许从 data.json 回填旧内容。
+	// 迁移完成后再从 data.json 回填，等于把已经被删除/清空的备忘重新塞回来。
+	if allowLegacyFallback {
+		if preloadedData != nil {
+			content = extractMemoContentFromWidgetData(preloadedData)
+		}
+		if content == "" && userData != nil {
+			content = extractMemoFromUserData(userData, widgetID)
+		}
+		if content == "" {
+			content = loadMemoFallbackContent(userFile, widgetID)
+		}
 	}
 	serverTS := int64(0)
 	if content != "" {
@@ -772,9 +950,9 @@ func GetMemo(c *gin.Context) {
 	}
 	memoFile := memoFilePath(username, widgetID)
 
-	memoFileMu.Lock()
-	defer memoFileMu.Unlock()
-	data, err := ensureMemoFile(userFile, memoFile, widgetID, nil, nil)
+	unlockMemo := lockMemoFile(memoFile)
+	defer unlockMemo()
+	data, err := ensureMemoFile(userFile, memoFile, widgetID, nil, nil, memoLegacyFallbackAllowed(username))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read memo"})
 		return
@@ -829,10 +1007,10 @@ func SaveMemo(c *gin.Context) {
 	}
 	memoFile := memoFilePath(username, widgetID)
 
-	memoFileMu.Lock()
-	defer memoFileMu.Unlock()
+	unlockMemo := lockMemoFile(memoFile)
+	defer unlockMemo()
 
-	current, err := ensureMemoFile(userFile, memoFile, widgetID, nil, nil)
+	current, err := ensureMemoFile(userFile, memoFile, widgetID, nil, nil, memoLegacyFallbackAllowed(username))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read memo"})
 		return
@@ -871,12 +1049,16 @@ func SaveMemo(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save memo"})
 		return
 	}
+	// memo 文件已变更：让 /api/data 的内存缓存立即失效。
+	// ETag 侧由 memoFilesSignature 自动感知（跨副本同样有效），这里只是省掉一次读盘。
+	invalidateGetDataCache(userFile)
 
 	if socketServer != nil {
 		socketServer.BroadcastToRoom("/", SocketUserRoom(username), "memo:updated", map[string]interface{}{
 			"widgetId": widgetID,
 			"content":  next,
 			"username": username,
+			"seq":      ws.NextWidgetSeq(username, widgetID),
 		})
 	}
 	if b := ws.GetBroadcaster(); b != nil {
@@ -959,6 +1141,10 @@ func SaveData(c *gin.Context) {
 	if username == "admin" && sysConfig.AuthMode == "single" {
 		userFile = filepath.Join(config.DataDir, "data.json")
 	}
+
+	// 串行化"读-改-写"：避免并发保存互相覆盖（丢更新）
+	unlockUserData := lockUserData(userFile)
+	defer unlockUserData()
 
 	// 2. Read existing data to map to preserve EVERYTHING in file
 	var existingData map[string]interface{}
@@ -1122,6 +1308,9 @@ func ResetData(c *gin.Context) {
 		userFile = filepath.Join(config.DataDir, "data.json")
 	}
 
+	unlockUserData := lockUserData(userFile)
+	defer unlockUserData()
+
 	// Read current data to preserve password/username
 	var currentData map[string]interface{}
 	utils.ReadJSON(userFile, &currentData)
@@ -1150,6 +1339,11 @@ func ResetData(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reset data"})
 		return
 	}
+
+	// 清空该用户的 memo 存储，避免重置后旧备忘被重新对齐回 data.json
+	removedMemos := removeUserMemoFiles(username)
+	invalidateGetDataCache(userFile)
+	log.Printf("ResetData user=%s removedMemoFiles=%d", username, removedMemos)
 
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }

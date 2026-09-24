@@ -38,6 +38,11 @@ func SaveSingleWidget(c *gin.Context) {
 		userFile = filepath.Join(config.DataDir, "data.json")
 	}
 
+	// 串行化"读-改-写"：SaveSingleWidget 只改一个 widget，但整份 userData 会被重写，
+	// 并发请求（例如 Todo 与备忘同时保存）会互相覆盖导致丢数据。
+	unlockUserData := lockUserData(userFile)
+	defer unlockUserData()
+
 	var userData map[string]interface{}
 	if err := utils.ReadJSON(userFile, &userData); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User data not found"})
@@ -161,7 +166,18 @@ func SaveSingleWidget(c *gin.Context) {
 	switch wType {
 	case "memo":
 		if b := ws.GetBroadcaster(); b != nil {
-			ws.BroadcastMemoUpdated(b.Manager, username, widgetID, payload["data"])
+			// memo 的权威内容在独立的 memo 文件里，payload["data"] 只是客户端提交的镜像
+			// （常见于侧边栏等只改 enable/布局的保存），可能已经过期。
+			// 直接用它广播会把旧备忘推给其他端。
+			broadcastContent := payload["data"]
+			memoFile := memoFilePath(username, widgetID)
+			unlockMemo := lockMemoFile(memoFile)
+			current, memoErr := ensureMemoFile(userFile, memoFile, widgetID, nil, nil, memoLegacyFallbackAllowed(username))
+			unlockMemo()
+			if memoErr == nil {
+				broadcastContent = current
+			}
+			ws.BroadcastMemoUpdated(b.Manager, username, widgetID, broadcastContent)
 		}
 	case "todo":
 		if b := ws.GetBroadcaster(); b != nil {

@@ -322,7 +322,9 @@ func main() {
 		api.GET("/docker-status", handlers.GetDockerStatus)                                        // Added Docker Status
 		api.GET("/docker/debug", handlers.GetDockerDebug)
 		api.GET("/config/proxy-status", handlers.GetProxyStatus)
-		api.GET("/widgets/:id", handlers.GetWidget) // Added Widget Data
+		// 必须鉴权：此前该接口没有 AuthMiddleware，username 为空时 handler 会回退到 admin，
+		// 多用户环境下会读到 admin 的 widget 数据（Todo 轮询正是走这里，会读到别人的待办）。
+		api.GET("/widgets/:id", middleware.AuthMiddleware(), handlers.GetWidget) // Added Widget Data
 		api.GET("/memo/:id", middleware.AuthMiddleware(), handlers.GetMemo)
 
 		// Icon Routes

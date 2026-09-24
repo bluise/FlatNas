@@ -24,6 +24,7 @@ func handleMemoUpdate(client *Client, manager *WSManager, rawPayload json.RawMes
 			"widgetId": p.WidgetID,
 			"content":  p.Content,
 			"username": client.username,
+			"seq":      NextWidgetSeq(client.username, p.WidgetID),
 		},
 	})
 	manager.BroadcastToUser(client.username, replyMsg, client.sessionID)
@@ -45,6 +46,7 @@ func handleTodoUpdate(client *Client, manager *WSManager, rawPayload json.RawMes
 			"widgetId": p.WidgetID,
 			"content":  p.Content,
 			"username": client.username,
+			"seq":      NextWidgetSeq(client.username, p.WidgetID),
 		},
 	})
 	manager.BroadcastToUser(client.username, replyMsg, client.sessionID)
@@ -101,6 +103,7 @@ func BroadcastMemoUpdated(manager *WSManager, username string, widgetID string, 
 			"widgetId": widgetID,
 			"content":  content,
 			"username": username,
+			"seq":      NextWidgetSeq(username, widgetID),
 		},
 	})
 	manager.BroadcastToUser(username, replyMsg, "")
@@ -163,6 +166,7 @@ func BroadcastTodoUpdated(manager *WSManager, username string, widgetID string, 
 			"widgetId": widgetID,
 			"content":  content,
 			"username": username,
+			"seq":      NextWidgetSeq(username, widgetID),
 		},
 	})
 	manager.BroadcastToUser(username, replyMsg, "")
@@ -179,6 +183,7 @@ func BroadcastBookmarksUpdated(manager *WSManager, username string, widgetID str
 			"widgetId": widgetID,
 			"content":  content,
 			"username": username,
+			"seq":      NextWidgetSeq(username, widgetID),
 		},
 	})
 	manager.BroadcastToUser(username, replyMsg, "")

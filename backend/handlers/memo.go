@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"flatnasgo-backend/config"
+	"flatnasgo-backend/ws"
 
 	"github.com/golang-jwt/jwt/v5"
 	socketio "github.com/googollee/go-socket.io"
@@ -18,6 +19,33 @@ func SocketUserRoom(username string) string {
 		return ""
 	}
 	return socketUserRoomPrefix + username
+}
+
+// emitToUserRoomExcept 向同一用户的房间广播并**排除发送者**，同时带上单调递增的 seq。
+//
+// 与原生 /ws 路径（ws.BroadcastToUser 会排除发送者、且带 seq）保持语义一致：
+//  - socket.io 的 BroadcastToRoom 会把消息也发给发送者自己，发送方会收到自己的回声；
+//  - 不带 seq 时，客户端无法识别迟到的旧消息，旧状态可能覆盖新状态。
+func emitToUserRoomExcept(server *socketio.Server, username, event, widgetID string, payload map[string]interface{}, except socketio.Conn) {
+	if server == nil {
+		return
+	}
+	room := SocketUserRoom(username)
+	if room == "" {
+		return
+	}
+	payload["username"] = username
+	payload["seq"] = ws.NextWidgetSeq(username, widgetID)
+	excludeID := ""
+	if except != nil {
+		excludeID = except.ID()
+	}
+	server.ForEach("/", room, func(conn socketio.Conn) {
+		if conn == nil || (excludeID != "" && conn.ID() == excludeID) {
+			return
+		}
+		conn.Emit(event, payload)
+	})
 }
 
 func socketConnUsername(s socketio.Conn) string {
@@ -84,11 +112,10 @@ func BindMemoHandlers(server *socketio.Server) {
 		if !ok {
 			return
 		}
-		server.BroadcastToRoom("/", SocketUserRoom(username), "memo:updated", map[string]interface{}{
+		emitToUserRoomExcept(server, username, "memo:updated", widgetId, map[string]interface{}{
 			"widgetId": widgetId,
 			"content":  content,
-			"username": username,
-		})
+		}, s)
 	})
 }
 
@@ -102,11 +129,10 @@ func BindTodoHandlers(server *socketio.Server) {
 		if !ok {
 			return
 		}
-		server.BroadcastToRoom("/", SocketUserRoom(username), "todo:updated", map[string]interface{}{
+		emitToUserRoomExcept(server, username, "todo:updated", widgetId, map[string]interface{}{
 			"widgetId": widgetId,
 			"content":  content,
-			"username": username,
-		})
+		}, s)
 	})
 }
 

@@ -2,6 +2,7 @@ import { ref, computed, watch } from "vue";
 import { defineStore } from "pinia";
 import { useWebSocket } from "@vueuse/core";
 import { normalizeVersion } from "@/utils/storeHelpers";
+import { shouldApplyBroadcastSeq } from "@/utils/broadcastSeq";
 import type { LuckyStunData } from "@/types";
 import { useAuthStore } from "./auth";
 import { useWidgetsStore } from "./widgets";
@@ -165,6 +166,9 @@ export const useSyncStore = defineStore("sync", () => {
   let wsWasConnectedBefore = false;
   let wsContinuousFailures = 0;
   let isApplyingServerData = false;
+  // 每个 widget 已应用的最大广播序号。后端 BroadcastToUser 对每个连接单独起 goroutine，
+  // 同一 widget 的连续广播可能后发先至；不丢弃迟到的旧消息，新状态会被覆盖回去。
+  const widgetBroadcastSeq = new Map<string, number>();
   const initCompleted = ref(false);
   const WS_FALLBACK_THRESHOLD = 5;
   let isHttpPollingActive = false;
@@ -469,6 +473,12 @@ export const useSyncStore = defineStore("sync", () => {
         const p = msg.payload || {};
         if (p.username !== auth.username) return;
         if (p.widgetId) {
+          const widgetId = String(p.widgetId);
+          if (!shouldApplyBroadcastSeq(widgetBroadcastSeq, widgetId, p.seq)) {
+            // 迟到的旧广播：直接丢弃，避免覆盖更新的状态
+            console.log(`[WS] 丢弃过期广播 widget=${widgetId} seq=${String(p.seq)}`);
+            break;
+          }
           const w = widgetsStore.widgets.find((x) => x.id === p.widgetId);
           if (w) {
             isApplyingServerData = true;
