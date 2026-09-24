@@ -14,7 +14,7 @@ env:
   # Use docker.io for Docker Hub if empty
   REGISTRY: docker.io
   # github.repository as <account>/<repo>
-  IMAGE_NAME: bluise/flatnas
+  IMAGE_NAME: bluise1/flatnas
   # 分支构建时使用该值作为 Docker 镜像 tag；打 Git Tag 时不使用
   VERSION: 1.6.1
 
