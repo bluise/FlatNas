@@ -16,8 +16,10 @@ describe('GroupSelector', () => {
         plugins: [
           createTestingPinia({
             createSpy: vi.fn,
+            // main 是 setup store，groups 是从 groups store 透传的 computed，
+            // initialState.main.groups 不会生效，必须给真正的 store 播种。
             initialState: {
-              main: {
+              groups: {
                 groups: [
                   { id: 'group-1', title: 'Group 1', items: [] },
                   { id: 'group-2', title: 'Group 2', items: [] },

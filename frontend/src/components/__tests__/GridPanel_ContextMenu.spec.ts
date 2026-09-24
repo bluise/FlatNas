@@ -34,10 +34,16 @@ vi.mock('../utils/gridLayout', () => ({
   generateLayout: (widgets: Record<string, unknown>[]) => widgets.map((w: Record<string, unknown>) => ({ ...w, i: w.id, x: 0, y: 0, w: 1, h: 1 })),
   compactVertical: (layout: unknown[]) => layout
 }));
-vi.mock('@/utils/network', () => ({
-  isInternalNetwork: () => false,
-  getNetworkConfig: () => ({})
-}));
+// 只覆盖需要打桩的两个导出，其余保持真实实现：
+// 之前这里是整体替换，组件新增 computeEffectiveNetworkMode 依赖后在 onMounted 直接抛错。
+vi.mock('@/utils/network', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/utils/network')>();
+  return {
+    ...actual,
+    isInternalNetwork: () => false,
+    getNetworkConfig: () => ({}),
+  };
+});
 
 describe('GridPanel Context Menu', () => {
   let wrapper: VueWrapper;
@@ -50,9 +56,11 @@ describe('GridPanel Context Menu', () => {
         plugins: [
           createTestingPinia({
             createSpy: () => vi.fn().mockResolvedValue(undefined),
+            // 注意：main 是 setup store，widgets/groups/appConfig/isLogged 都是从子 store
+            // 计算或透传出来的，写 initialState.main.* 不会生效，必须给真正的 store 播种。
             initialState: {
-              main: {
-                isLogged: true,
+              auth: { token: 'test-token', username: 'admin' },
+              widgets: {
                 widgets: [
                   {
                     id: 'div-card-1',
@@ -63,13 +71,19 @@ describe('GridPanel Context Menu', () => {
                     isPublic: true
                   }
                 ],
-                groups: [],
-                appConfig: {}
-              }
+              },
+              groups: { groups: [] },
+              config: { appConfig: {} },
             }
           })
         ],
         stubs: {
+          // OverlayMotion 默认 teleport 到 body，VTU 的 wrapper.find 看不到内容，
+          // 这里用透传 stub 保留"show 为真才渲染"的语义。
+          OverlayMotion: {
+            props: ['show', 'zIndex', 'panelClass', 'panelStyle', 'variant', 'closeOnOverlay'],
+            template: '<div v-if="show"><slot /></div>'
+          },
           ClockWidget: true,
           SimpleWeatherWidget: true,
           CalendarWidget: true,
