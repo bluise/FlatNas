@@ -1,0 +1,68 @@
+name: Build Desktop Widget (Windows)
+
+# 说明：GitHub 的 push 触发器里 paths 过滤与 tags 不能可靠地混用，
+# 所以这里用「手动触发 + 打 v* tag 时自动触发」两种方式。
+# 日常改 desktop/ 代码后，到 Actions 页点 Run workflow 即可。
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build Windows exe
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: desktop
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.12.0"
+          cache: "npm"
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build installer + portable exe
+        run: npm run dist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - name: Show artifacts
+        run: Get-ChildItem dist | Format-Table Name, Length
+        shell: pwsh
+
+      - name: Upload as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flatnas-desktop-windows
+          if-no-files-found: error
+          path: |
+            desktop/dist/*.exe
+            desktop/dist/*.blockmap
+            desktop/dist/latest.yml
+
+      - name: Attach to Release (tag only)
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            desktop/dist/*.exe
+            desktop/dist/*.blockmap
+            desktop/dist/latest.yml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
