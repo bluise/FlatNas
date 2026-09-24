@@ -14,7 +14,7 @@ env:
   # Use docker.io for Docker Hub if empty
   REGISTRY: docker.io
   # github.repository as <account>/<repo>
-  IMAGE_NAME: qdnas/flatnas
+  IMAGE_NAME: bluise/flatnas
   # 分支构建时使用该值作为 Docker 镜像 tag；打 Git Tag 时不使用
   VERSION: 1.2.6
 
@@ -56,12 +56,11 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # 非 PR 时额外打 latest，方便 docker-compose / docker run 直接引用
           tags: |
             type=ref,event=tag
             type=raw,value=${{ env.VERSION }},enable=${{ github.ref_type == 'branch' }}
-          #  type=raw,value=latest,enable=${{ github.event_name != 'pull_request' }}
-          # 添加 latest 标签：通过 metadata-action 追加 raw 标签，非 PR 触发时生效
-            
+            type=raw,value=latest,enable=${{ github.event_name != 'pull_request' }}
 
       # Build and push Docker image with Buildx (don't push on PR)
       # https://github.com/docker/build-push-action

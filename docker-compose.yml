@@ -2,7 +2,9 @@ version: "3.8"
 
 services:
   flatnas:
-    image: qdnas/flatnas:latest
+    # 指向本仓库（bluise/flatnas）自己构建发布的镜像；
+    # 如需使用上游官方镜像，改回 qdnas/flatnas:latest
+    image: bluise/flatnas:latest
     container_name: flatnas
     restart: unless-stopped
     ports:
