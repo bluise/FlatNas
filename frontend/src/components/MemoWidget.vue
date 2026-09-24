@@ -50,13 +50,20 @@ const serverTs = ref(0);
 const lastInputAt = ref(0);
 const isBroadcasting = ref(false);
 const isPageVisible = ref(document.visibilityState === "visible");
+// 本地是否存在尚未成功写入服务端的改动。
+// 为真时禁止远端数据覆盖本地，也禁止把本地缓存当作"服务端最新"回推。
+const hasPendingLocalChanges = ref(false);
+// 最近一次与服务端确认一致的内容/模式，用于避免"应用远端数据"触发的回声保存
+let lastSyncedContent = "";
+let lastSyncedMode: "simple" | "rich" = "simple";
 
 // Persistence
 const { saveToIndexedDB, loadFromIndexedDB, status, saveVersionSnapshot, loadVersions, deleteVersion } =
   useMemoPersistence(
   props.widget.id,
   localData,
-  mode
+  mode,
+  serverTs
 );
 
 // Toast State
@@ -110,6 +117,9 @@ const containerStyle = computed(() => ({
 // Methods
 const handleCommand = (cmd: string, val?: string) => {
   editorRef.value?.execCommand(cmd, val);
+  markLocalDirty();
+  saveToIndexedDB({ pending: true });
+  saveToServer();
 };
 
 const syncLocalFromEditorIfRich = () => {
@@ -150,6 +160,7 @@ const toggleMode = () => {
     }
   }
   mode.value = mode.value === "simple" ? "rich" : "simple";
+  markLocalDirty();
   saveToServer(true);
 };
 
@@ -317,6 +328,19 @@ const markSaveError = (message: string, allowRetry = true) => {
   }
 };
 
+/** 服务端已确认当前本地内容，清除"待同步"标记并落盘本地缓存。 */
+const markLocalSynced = () => {
+  hasPendingLocalChanges.value = false;
+  lastSyncedContent = localData.value;
+  lastSyncedMode = mode.value;
+  void saveToIndexedDB({ pending: false });
+};
+
+/** 记录一次用户主动编辑，进入"待同步"状态。 */
+const markLocalDirty = () => {
+  hasPendingLocalChanges.value = true;
+};
+
 const saveToServer = async (immediate = false, keepalive = false) => {
   if (!store.isLogged) return;
   // If conflict is active, block further auto-saves until resolved
@@ -337,6 +361,15 @@ const saveToServer = async (immediate = false, keepalive = false) => {
   if (!id) return;
   const doSave = async () => {
     syncLocalFromEditorIfRich();
+    // 没有任何真实改动时不做无意义的服务端写入：每次 PUT 都会让 server_ts 前进，
+    // 平白制造和其他设备的冲突（例如只是点了下编辑框又失焦）。
+    if (
+      !hasPendingLocalChanges.value &&
+      localData.value === lastSyncedContent &&
+      mode.value === lastSyncedMode
+    ) {
+      return;
+    }
     if (isSaving.value) {
       pendingSave.value = true;
       return;
@@ -346,6 +379,9 @@ const saveToServer = async (immediate = false, keepalive = false) => {
     pendingSave.value = false;
 
     const payload = buildPayload();
+    // 记录本次真正发出去的内容：保存期间用户可能继续编辑，回包不能拿来覆盖新输入
+    const sentContent = payload.content;
+    const sentMode = payload.mode;
     const requestID = createSaveRequestID(id, payload);
     try {
       const res = await requestMemoSave(id, payload, keepalive, requestID);
@@ -373,33 +409,13 @@ const saveToServer = async (immediate = false, keepalive = false) => {
           syncState.value = "idle";
           showToast.value = false;
           saveRetryCount = 0;
+          markLocalSynced();
           return;
         }
 
-        if (remoteParsed.serverTs) {
-          serverTs.value = remoteParsed.serverTs;
-          const retryPayload = buildPayload();
-          const retryRequestID = createSaveRequestID(id, retryPayload);
-          const retryRes = await requestMemoSave(id, retryPayload, keepalive, retryRequestID);
-          const retryParsedBody = await parseJsonBody(retryRes);
-          const retryData = retryParsedBody.isJson
-            ? (retryParsedBody.data as { data?: WidgetConfig["data"] } | null)
-            : null;
-          if (retryRes.ok && retryParsedBody.isJson) {
-            if (retryData?.data) {
-              applyRemotePayload(retryData.data);
-            }
-            conflictState.value = { hasConflict: false, remoteData: null };
-            syncState.value = "idle";
-            showToast.value = false;
-            saveRetryCount = 0;
-            return;
-          }
-          if (!retryParsedBody.isJson) {
-            markSaveError("保存失败：服务返回异常页面");
-            return;
-          }
-        }
+        // 注意：这里曾经会"自动带上服务端 server_ts 重试一次"，等于用本地（可能是旧缓存）
+        // 静默覆盖掉服务端更新的内容——正是"备忘录丢东西 / 删掉的又回来"的来源之一。
+        // 现在一律走冲突提示，由用户决定保留哪一份。
 
         const signature = buildConflictSignature(
           remoteParsed.content,
@@ -444,7 +460,20 @@ const saveToServer = async (immediate = false, keepalive = false) => {
         return;
       }
       if (data?.data) {
-        applyRemotePayload(data.data);
+        // 只采纳服务端返回的 server_ts（后续保存的乐观锁需要它），
+        // 不用回包内容覆盖本地——本地可能已经有更新的输入。
+        const remoteParsed = parsePayload(data.data);
+        if (remoteParsed.serverTs) {
+          serverTs.value = remoteParsed.serverTs;
+        }
+      }
+      lastSyncedContent = sentContent;
+      lastSyncedMode = sentMode;
+      if (localData.value === sentContent && mode.value === sentMode) {
+        markLocalSynced();
+      } else {
+        // 保存期间用户又编辑了：保持待同步，稍后（finally 或自动保存定时器）再存一次
+        hasPendingLocalChanges.value = true;
       }
       saveRetryCount = 0;
       if (saveRetryTimer) {
@@ -495,6 +524,7 @@ const resolveConflict = (action: 'local' | 'remote') => {
   } else {
     // Use remote content
     applyRemotePayload(remote, true);
+    markLocalSynced();
   }
   // Clear conflict state
   conflictState.value = { hasConflict: false, remoteData: null };
@@ -506,20 +536,27 @@ const applyRemotePayload = (payload: WidgetConfig["data"], force = false) => {
   const parsed = parsePayload(payload);
   if (!force && parsed.serverTs && parsed.serverTs <= serverTs.value) return;
   if (conflictState.value.hasConflict && !force) return; // Block remote updates during conflict
-  
+
   if (isEditing.value) {
     if (parsed.serverTs) {
       serverTs.value = parsed.serverTs;
     }
     return;
   }
+  // 本地有未同步的改动时，远端内容不允许覆盖本地（上一步已经同步了 server_ts，
+  // 之后保存会走乐观锁校验，由冲突提示来决定保留哪一份，而不是静默丢改动）。
+  if (hasPendingLocalChanges.value && !force) return;
+
   if (parsed.content !== localData.value || parsed.serverTs !== serverTs.value) {
     localData.value = parsed.content;
     serverTs.value = parsed.serverTs;
   }
-  if (parsed.mode === "simple" || parsed.mode === "rich") {
-    mode.value = parsed.mode;
+  const nextMode = parsed.mode === "simple" || parsed.mode === "rich" ? parsed.mode : mode.value;
+  if (nextMode !== mode.value) {
+    mode.value = nextMode;
   }
+  lastSyncedContent = parsed.content;
+  lastSyncedMode = nextMode;
 };
 
 let pollTimer: ReturnType<typeof setTimeout> | null = null;
@@ -734,6 +771,7 @@ const handleBlur = () => {
 
 const handleInputActivity = () => {
   lastInputAt.value = Date.now();
+  markLocalDirty();
   handleUserActivity(); // Also trigger activity
   updateSyncMode();
   scheduleBroadcast();
@@ -792,14 +830,16 @@ const toggleVersionMenu = () => {
 
 const createNewMemo = async () => {
   localData.value = "";
-  await saveToIndexedDB();
+  markLocalDirty();
+  await saveToIndexedDB({ pending: true });
   saveToServer(true);
 };
 
 const applyVersion = async (version: MemoVersion) => {
   localData.value = version.content;
   mode.value = version.mode;
-  await saveToIndexedDB();
+  markLocalDirty();
+  await saveToIndexedDB({ pending: true });
   saveToServer(true);
 };
 
@@ -873,50 +913,99 @@ const handleBeforeUnload = () => {
     serverSaveTimer = null;
   }
   // Try to persist locally as well (fire and forget)
-  saveToIndexedDB();
+  saveToIndexedDB({ pending: hasPendingLocalChanges.value });
   saveToServer(true, true);
 };
 
-// Initial Load
-loadFromIndexedDB().then(async () => {
-  if (!localData.value && props.widget.data) {
-     if (typeof props.widget.data === "string") {
-        localData.value = props.widget.data;
-     } else {
-        const d = props.widget.data as { rich?: string; simple?: string; mode?: "simple" | "rich"; server_ts?: number; updatedAt?: number };
-        localData.value = d.rich || d.simple || "";
-        // Auto-detect mode: use saved mode if present, otherwise infer from content shape
-        const looksLikeHtml = localData.value && /<[a-z][\s\S]*>/i.test(localData.value);
-        if (d.mode === "rich") {
-          mode.value = "rich";
-        } else if (d.mode === "simple" && looksLikeHtml) {
-          // Dirty data fix: mode says simple but content is HTML (from old toggleMode bug)
-          // Switch to rich to render properly instead of showing raw tags
-          mode.value = "rich";
-        } else if (!d.mode && looksLikeHtml) {
-          mode.value = "rich";
-        } else {
-          mode.value = "simple";
-        }
-        serverTs.value = typeof d.server_ts === "number" ? d.server_ts : (typeof d.updatedAt === "number" ? d.updatedAt : 0);
-     }
+const readWidgetPayload = (): { content: string; mode: "simple" | "rich" | ""; serverTs: number } => {
+  const raw = props.widget.data;
+  if (!raw) return { content: "", mode: "", serverTs: 0 };
+  if (typeof raw === "string") {
+    return { content: raw, mode: "", serverTs: 0 };
   }
-  // Dirty data fix: if IndexedDB or widget.data loaded HTML content with mode="simple",
-  // auto-correct to "rich" so the contenteditable renders it instead of showing raw tags
+  const d = raw as {
+    rich?: string;
+    simple?: string;
+    content?: string;
+    mode?: "simple" | "rich";
+    server_ts?: number;
+    updatedAt?: number;
+  };
+  const content = d.content || d.rich || d.simple || "";
+  const ts = typeof d.server_ts === "number" ? d.server_ts : (typeof d.updatedAt === "number" ? d.updatedAt : 0);
+  return { content, mode: d.mode === "simple" || d.mode === "rich" ? d.mode : "", serverTs: ts };
+};
+
+const applyModeFromContent = (next: "simple" | "rich" | "", content: string) => {
+  const looksLikeHtml = !!content && /<[a-z][\s\S]*>/i.test(content);
+  if (next === "rich") {
+    mode.value = "rich";
+  } else if (next === "simple" && looksLikeHtml) {
+    // Dirty data fix: mode says simple but content is HTML (from old toggleMode bug)
+    mode.value = "rich";
+  } else if (!next && looksLikeHtml) {
+    mode.value = "rich";
+  } else {
+    mode.value = "simple";
+  }
+};
+
+// Initial Load
+// 关键修复：IndexedDB 只是本地缓存，不能无条件覆盖内存内容并触发自动保存。
+// 之前的顺序是"读缓存 → 写入 localData → 自动保存把它推回服务端"，会把已经在别处
+// 删除/修改的旧备忘复活。现在只有明确标记为"未同步"（pending）的本地记录才优先。
+void (async () => {
+  const cached = await loadFromIndexedDB();
+  const widgetPayload = readWidgetPayload();
+  const hasWidgetData = widgetPayload.content.length > 0;
+
+  let usedCache = false;
+  if (cached && (cached.pending || !hasWidgetData)) {
+    localData.value = cached.content;
+    mode.value = cached.mode;
+    if (typeof cached.serverTs === "number" && cached.serverTs > 0) {
+      serverTs.value = cached.serverTs;
+    }
+    usedCache = true;
+  }
+
+  // 注意用 usedCache 而不是 !localData.value：缓存内容本身可能就是空字符串
+  // （例如离线时点了"新建备忘"清空），此时不能再用服务端旧内容覆盖它。
+  if (!usedCache && hasWidgetData) {
+    localData.value = widgetPayload.content;
+    applyModeFromContent(widgetPayload.mode, widgetPayload.content);
+    serverTs.value = widgetPayload.serverTs;
+  }
+
+  // Dirty data fix: HTML content with mode="simple" -> render as rich
   if (mode.value === "simple" && localData.value && /<[a-z][\s\S]*>/i.test(localData.value)) {
     mode.value = "rich";
   }
-  await refreshVersions();
-});
 
-// Auto-save wrapper (optional, but requested "Persistent Button" behavior implies manual action is the focus, 
-// but user data usually needs autosave. The prompt emphasizes the "Persistent Button" feedback.)
-// I will keep manual save for the "Persistent Button" requirement demo, and maybe autosave silently.
+  if (cached?.pending) {
+    // 上次会话有未同步到服务端的本地改动：标记待同步并在联网时推送，
+    // 若期间服务端也被改过，会走冲突提示而不是静默覆盖。
+    hasPendingLocalChanges.value = true;
+    void saveToServer(true);
+  } else {
+    lastSyncedContent = localData.value;
+    lastSyncedMode = mode.value;
+  }
+
+  await refreshVersions();
+})();
+
+// 自动保存：只保存"用户真实编辑过"的内容。
+// 之前监听 [localData, mode] 的变化就无条件保存，导致加载缓存/应用远端数据同样会回声保存，
+// 把本地旧内容推回服务端。
 let autoSaveTimer: ReturnType<typeof setTimeout> | undefined;
 watch([localData, mode], () => {
+  if (!hasPendingLocalChanges.value) return;
+  if (localData.value === lastSyncedContent && mode.value === lastSyncedMode) return;
   clearTimeout(autoSaveTimer);
   autoSaveTimer = setTimeout(() => {
-    saveToIndexedDB();
+    if (!hasPendingLocalChanges.value) return;
+    saveToIndexedDB({ pending: true });
     saveToServer();
   }, autoSaveDelay.value);
 });

@@ -168,6 +168,17 @@ export const useMainStore = defineStore("main", () => {
       },
     });
 
+  /** 不做自动重试的保存：409 冲突原样返回，由组件弹选择（待办用） */
+  const saveSingleWidgetOrConflict = (widgetId: string, payload: Record<string, unknown>) =>
+    widgetsStore.saveSingleWidgetOrConflict(widgetId, payload, getHeaders, {
+      get value() {
+        return sync.dataVersion;
+      },
+      set value(v: number) {
+        sync.dataVersion = v;
+      },
+    });
+
   // ---- Sync / WS ----
   const isConnected = computed(() => sync.isConnected);
   const wsSend = sync.wsSend;
@@ -317,6 +328,7 @@ export const useMainStore = defineStore("main", () => {
     setWidgetUiState,
     saveWidget,
     saveSingleWidget,
+    saveSingleWidgetOrConflict,
     // Sync / WS
     isConnected,
     wsSend,

@@ -95,7 +95,7 @@ describe('MemoWidget', () => {
   it('toggles mode', async () => {
     wrapper = createWrapper();
     // Use title selector since the button is now a div with title
-    const toggleBtn = wrapper.find('[title="切换模式 (Switch Mode)"]');
+    const toggleBtn = wrapper.find('[title="切换模式"]');
     expect(toggleBtn.exists()).toBe(true);
 
     await toggleBtn.trigger('click');
@@ -109,7 +109,7 @@ describe('MemoWidget', () => {
     wrapper = createWrapper();
 
     // Switch to rich mode first to see the button
-    const toggleBtn = wrapper.find('[title="切换模式 (Switch Mode)"]');
+    const toggleBtn = wrapper.find('[title="切换模式"]');
     await toggleBtn.trigger('click');
 
     const saveBtn = wrapper.findAll('button').find((b: DOMWrapper<HTMLButtonElement>) => b.text().includes('保存'));
@@ -142,7 +142,7 @@ describe('MemoWidget', () => {
     wrapper = createWrapper();
 
     // Switch to rich mode first to see the button
-    const toggleBtn = wrapper.find('[title="切换模式 (Switch Mode)"]');
+    const toggleBtn = wrapper.find('[title="切换模式"]');
     await toggleBtn.trigger('click');
 
     const saveBtn = wrapper.findAll('button').find((b: DOMWrapper<HTMLButtonElement>) => b.text().includes('保存'));
