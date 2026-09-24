@@ -119,7 +119,7 @@ FlatNas 后端集成了智能网络环境识别功能，能够根据用户的访
 - 子路径部署，如 `/flatnas/`
 - 前后端分离部署
 
-请参考专门说明：[`README_NETWORK.md`](README_NETWORK.md)
+请参考专门说明：[复杂网络环境部署](https://github.com/bluise/FlatNas#复杂网络环境部署)
 
 ## 📦 安装与部署
 
