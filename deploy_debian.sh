@@ -12,13 +12,13 @@ IFS=$'\n\t'
 #
 # 使用方式：
 #   1. 下载脚本：
-#      wget -O deploy_debian.sh https://raw.githubusercontent.com/Garry-QD/FlatNas/main/deploy_debian.sh
+#      wget -O deploy_debian.sh https://raw.githubusercontent.com/bluise/FlatNas/main/deploy_debian.sh
 #   2. 运行安装：
 #      chmod +x deploy_debian.sh
 #      sudo ./deploy_debian.sh
 #
 # 前置要求：
-#   - 确保 GitHub 仓库 (Garry-QD/FlatNas) 发布了包含 flatnas-amd64.zip / flatnas-arm64.zip 的 Release。
+#   - 确保 GitHub 仓库 (bluise/FlatNas) 发布了包含 flatnas-amd64.zip / flatnas-arm64.zip 的 Release。
 #   - zip 包应包含 flatnas-server 二进制和 server/public 目录。
 
 MODE="${1:-install}"
@@ -568,7 +568,7 @@ install_flow() {
   # 注册清理函数，确保退出时删除临时目录
   trap 'rm -rf "${tmp_dir}"' EXIT
 
-  local download_url="https://github.com/Garry-QD/FlatNas/releases/latest/download/flatnas-${ARCH}.zip"
+  local download_url="https://github.com/bluise/FlatNas/releases/latest/download/flatnas-${ARCH}.zip"
   local zip_file="${tmp_dir}/flatnas-${ARCH}.zip"
   
   log_info "下载: ${download_url}"

@@ -1,8 +1,13 @@
 # FlatNas
 
-[![GitHub](https://img.shields.io/badge/GitHub-FlatNas-181717?style=flat&logo=github&logoColor=white)](https://github.com/Garry-QD/FlatNas)
-[![Gitee](https://img.shields.io/badge/Gitee-FlatNas-C71D23?style=flat&logo=gitee&logoColor=white)](https://gitee.com/gjx0808/FlatNas)
-[![Docker Image](https://img.shields.io/badge/Docker-qdnas%2Fflatnas-2496ED?style=flat&logo=docker&logoColor=white)](https://hub.docker.com/r/qdnas/flatnas)
+[![GitHub](https://img.shields.io/badge/GitHub-FlatNas-181717?style=flat&logo=github&logoColor=white)](https://github.com/bluise/FlatNas)
+[![Upstream](https://img.shields.io/badge/Upstream-Garry--QD%2FFlatNas-6e6e6e?style=flat&logo=github&logoColor=white)](https://github.com/Garry-QD/FlatNas)
+[![Docker Image](https://img.shields.io/badge/Docker-bluise1%2Fflatnas-2496ED?style=flat&logo=docker&logoColor=white)](https://hub.docker.com/r/bluise1/flatnas)
+
+> **关于本仓库**
+> 这是 [Garry-QD/FlatNas](https://github.com/Garry-QD/FlatNas)（AGPL-3.0）的个人构建版本，版本号 `1.6.1`，
+> 额外包含**待办事项与备忘录的数据一致性修复**（丢内容、"已删除的又冒出来" 等问题），详见 [修复说明](#本版修复内容)。
+> 预构建镜像：`bluise1/flatnas:latest` / `bluise1/flatnas:1.6.1`（支持 amd64 / arm64 / armv7）。
 
 FlatNas 是一个轻量级、高度可定制的个人导航页与仪表盘系统。它基于 Vue 3 与 Go(Gin) 构建，旨在为 NAS 用户、极客和开发者提供一个优雅的浏览器起始页。
 交流QQ群:613835409
@@ -123,7 +128,7 @@ FlatNas 后端集成了智能网络环境识别功能，能够根据用户的访
 适用于 Debian/Ubuntu，无需 Docker，脚本会自动下载最新 Release 并完成部署。
 
 ```bash
-wget -O deploy_debian.sh https://raw.githubusercontent.com/Garry-QD/FlatNas/main/deploy_debian.sh
+wget -O deploy_debian.sh https://raw.githubusercontent.com/bluise/FlatNas/main/deploy_debian.sh
 chmod +x deploy_debian.sh
 sudo ./deploy_debian.sh
 ```
@@ -133,7 +138,7 @@ sudo ./deploy_debian.sh
 部署完成后，使用管理脚本进行常用运维操作（查看状态、修改端口、配置 HTTPS、查看日志、卸载）。
 
 ```bash
-wget -O manage.sh https://raw.githubusercontent.com/Garry-QD/FlatNas/main/manage.sh
+wget -O manage.sh https://raw.githubusercontent.com/bluise/FlatNas/main/manage.sh
 chmod +x manage.sh
 sudo ./manage.sh
 ```
@@ -185,7 +190,7 @@ docker run -d \
   -v $(pwd)/APP:/app/server/APP \
   -v /var/run/docker.sock:/var/run/docker.sock \
   --name flatnas \
-  qdnas/flatnas:latest
+  bluise1/flatnas:latest
 ```
 
 ### 4. Docker Compose 部署
@@ -195,7 +200,7 @@ version: '3.8'
 
 services:
   flatnas:
-    image: qdnas/flatnas:latest
+    image: bluise1/flatnas:latest
     container_name: flatnas
     restart: unless-stopped
     ports:
@@ -301,6 +306,34 @@ export default {
   },
 };
 ```
+
+## 🔧 本版修复内容
+
+相对上游 `1.2.6`，本构建（`1.6.1`）修复了待办与备忘录「丢内容、已删除的又冒出来」等一系列数据一致性问题：
+
+**待办事项**
+
+- 勾选完成状态此前只改内存副本、从不落盘 → 已写回并持久化
+- 切回标签页 / 恢复网络时的强制刷新会用服务端旧数据覆盖本地，导致「刚删掉的条目又冒出来」→ 有未落盘改动时禁止远端覆盖
+- localStorage 备份会把别处已删除的旧数据推回服务端 → 改为仅在确实离线时兜底
+- 保存失败后没有重试 → 增加指数退避重试
+- 多设备同时修改时静默「本地覆盖云端」→ 改为弹出冲突选择（保留本地 / 使用云端）
+
+**备忘录**
+
+- IndexedDB 旧缓存会在打开页面时被自动推回服务端（复活已删除内容）→ 改为纯缓存，仅未同步的本地改动才优先
+- 409 冲突时曾自动重试并覆盖云端 → 改为冲突提示，由用户选择
+- 自动保存会因「加载缓存 / 应用远端数据」而回声写盘 → 改为仅保存用户真实编辑
+- 版本历史无上限 → 限制为最近 30 条
+
+**服务端**
+
+- memo 改动不会让 `/api/data` 的缓存与 ETag 失效，其他端在缓存有效期内一直读到旧备忘 → 改用文件指纹，多副本部署同样有效
+- `/api/widgets/batch`、`/api/widgets/:id` 未用 memo 文件对齐，会把旧备忘推给客户端 → 已对齐
+- 保存接口「读-改-写」非原子，并发保存互相覆盖 → 进程内互斥 + 跨进程文件锁
+- WebSocket 广播乱序时旧消息覆盖新状态 → 增加单调递增序号，客户端丢弃迟到消息
+- `GET /api/widgets/:id` 缺少鉴权，多用户下会读到 admin 的数据 → 已加鉴权
+- 重置数据后旧备忘会被重新填回 → 已一并清理
 
 ## 📜 开源协议
 

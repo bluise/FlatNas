@@ -9,7 +9,7 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: ${{ github.event_name == 'workflow_dispatch' && 'true' || '' }}
-  DOCKER_IMAGE: qdnas/flatnas
+  DOCKER_IMAGE: bluise1/flatnas
 
 permissions:
   contents: write
