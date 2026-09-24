@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:;" />
+    <title>FlatNas 待办</title>
+    <link rel="stylesheet" href="index.css" />
+  </head>
+  <body>
+    <div id="card" class="card">
+      <header class="card-header" id="drag-bar">
+        <div class="title-area">
+          <span class="dot" id="status-dot" title="同步状态"></span>
+          <span class="title">待办</span>
+          <span class="counter" id="counter">0 / 0</span>
+        </div>
+        <div class="actions">
+          <button class="icon-btn" id="btn-pin" title="置顶显示">📌</button>
+          <button class="icon-btn" id="btn-settings" title="设置">⚙</button>
+          <button class="icon-btn" id="btn-hide" title="隐藏到托盘">✕</button>
+        </div>
+      </header>
+
+      <main class="list" id="list"></main>
+
+      <div class="empty" id="empty">
+        <p>暂无待办</p>
+        <p class="hint" id="empty-hint">在下面输入框添加，回车即可</p>
+      </div>
+
+      <div class="notify" id="notify" hidden></div>
+
+      <footer class="card-footer">
+        <input id="new-todo" type="text" placeholder="添加待办，回车确认…" autocomplete="off" />
+        <button id="btn-add" class="primary" title="添加">＋</button>
+      </footer>
+    </div>
+
+    <script src="index.js"></script>
+  </body>
+</html>

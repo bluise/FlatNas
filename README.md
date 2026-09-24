@@ -121,6 +121,26 @@ FlatNas 后端集成了智能网络环境识别功能，能够根据用户的访
 
 请参考专门说明：[复杂网络环境部署](https://github.com/bluise/FlatNas#复杂网络环境部署)
 
+## 🖥️ 桌面小插件（Windows）
+
+`desktop/` 目录下是一个 Windows 桌面待办小插件（Electron），类似敬业签：
+
+- 无边框 + **背景透明**（透明度/配色/字号可调）、置顶显示、托盘常驻、关窗不退
+- **与本项目的「待办事项」组件双向同步**（同一份数据），支持离线改动、断网重试、冲突重试
+- 鼠标穿透（`Ctrl+Alt+L`）、开机自启、隐藏任务栏图标
+
+```bash
+cd desktop
+npm install
+npm start        # 开发运行
+npm run dist     # 打包 exe（NSIS 安装包 + 免安装版）
+```
+
+也可以从 [Actions](https://github.com/bluise/FlatNas/actions/workflows/desktop-build.yml) 手动触发
+Windows 构建，产物在运行页面的 Artifacts 里下载。
+
+详见 [desktop/README.md](desktop/README.md)。
+
 ## 📦 安装与部署
 
 ### 1. Debian/Ubuntu，一键部署

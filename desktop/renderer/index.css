@@ -1,0 +1,236 @@
+/* FlatNas 待办 · 桌面小插件样式
+   窗口本身是透明的（transparent:true），这里只画中间那张卡片，
+   所以卡片以外的地方完全透明。背景不透明度由设置里的滑杆控制。 */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  font-family: "Microsoft YaHei UI", "Microsoft YaHei", -apple-system, "Segoe UI", sans-serif;
+  user-select: none;
+}
+
+.card {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  /* --card-bg 由 index.js 根据「颜色 + 不透明度」算好后写入 */
+  background: var(--card-bg, rgba(17, 24, 39, 0.85));
+  color: var(--text-color, #f9fafb);
+  font-size: var(--font-size, 14px);
+  backdrop-filter: blur(var(--backdrop-blur, 6px));
+  overflow: hidden;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.28);
+}
+
+/* ---------- 顶部（可拖动） ---------- */
+
+.card-header {
+  -webkit-app-region: drag;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.title-area {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.title {
+  font-weight: 600;
+  font-size: 0.95em;
+  letter-spacing: 0.5px;
+}
+
+.counter {
+  font-size: 0.78em;
+  opacity: 0.62;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #6b7280;
+  flex: 0 0 auto;
+  transition: background 0.2s;
+}
+.dot.ok { background: #22c55e; }
+.dot.syncing { background: #3b82f6; animation: pulse 1s infinite; }
+.dot.offline { background: #f59e0b; }
+.dot.error { background: #ef4444; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.actions {
+  -webkit-app-region: no-drag;
+  display: flex;
+  gap: 2px;
+}
+
+.icon-btn {
+  -webkit-app-region: no-drag;
+  border: none;
+  background: transparent;
+  color: inherit;
+  opacity: 0.55;
+  font-size: 0.85em;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.icon-btn:hover { opacity: 1; background: rgba(255, 255, 255, 0.12); }
+.icon-btn.active { opacity: 1; background: rgba(59, 130, 246, 0.35); }
+
+/* ---------- 列表 ---------- */
+
+.list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 6px 8px;
+  -webkit-app-region: no-drag;
+}
+
+.list::-webkit-scrollbar { width: 6px; }
+.list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 3px;
+}
+
+.item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: 8px;
+}
+.item:hover { background: rgba(255, 255, 255, 0.07); }
+
+.item input[type="checkbox"] {
+  margin-top: 2px;
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent, #3b82f6);
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.item .text {
+  flex: 1 1 auto;
+  word-break: break-word;
+  line-height: 1.35;
+  cursor: default;
+}
+.item.done .text {
+  text-decoration: line-through;
+  opacity: 0.45;
+}
+
+.item .del {
+  border: none;
+  background: transparent;
+  color: inherit;
+  opacity: 0;
+  cursor: pointer;
+  font-size: 0.8em;
+  padding: 2px 5px;
+  border-radius: 5px;
+}
+.item:hover .del { opacity: 0.5; }
+.item .del:hover { opacity: 1; background: rgba(239, 68, 68, 0.28); }
+
+.item .edit-input {
+  flex: 1 1 auto;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 6px;
+  color: inherit;
+  font: inherit;
+  padding: 2px 6px;
+  outline: none;
+}
+
+.empty {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  opacity: 0.42;
+  font-size: 0.9em;
+  pointer-events: none;
+}
+.empty p { margin: 0; }
+.empty .hint { font-size: 0.82em; opacity: 0.8; }
+
+.notify {
+  margin: 0 8px 6px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  font-size: 0.8em;
+  line-height: 1.3;
+  background: rgba(245, 158, 11, 0.22);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+}
+.notify.error {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.45);
+}
+
+/* ---------- 底部输入 ---------- */
+
+.card-footer {
+  -webkit-app-region: no-drag;
+  display: flex;
+  gap: 6px;
+  padding: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.card-footer input {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: rgba(255, 255, 255, 0.09);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  padding: 6px 9px;
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+.card-footer input:focus {
+  border-color: var(--accent, #3b82f6);
+  background: rgba(255, 255, 255, 0.14);
+}
+.card-footer input::placeholder { color: currentColor; opacity: 0.4; }
+
+.primary {
+  border: none;
+  border-radius: 8px;
+  padding: 0 12px;
+  font-size: 1.05em;
+  cursor: pointer;
+  color: #fff;
+  background: var(--accent, #3b82f6);
+}
+.primary:hover { filter: brightness(1.12); }
+.primary:active { filter: brightness(0.95); }

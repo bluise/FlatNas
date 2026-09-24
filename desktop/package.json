@@ -1,0 +1,58 @@
+{
+  "name": "flatnas-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "FlatNas 待办桌面小插件：透明背景、置顶、托盘常驻，与 FlatNas 待办事项双向同步",
+  "main": "main.js",
+  "author": "bluise",
+  "license": "AGPL-3.0",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.js",
+    "pack": "electron-builder --win --dir --publish never",
+    "dist": "electron-builder --win --publish never"
+  },
+  "devDependencies": {
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "icu.flatnas.desktop",
+    "productName": "FlatNas待办",
+    "files": [
+      "main.js",
+      "preload.js",
+      "src/**/*",
+      "renderer/**/*",
+      "assets/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.png",
+      "artifactName": "FlatNas-Desktop-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "FlatNas待办",
+      "artifactName": "FlatNas-Desktop-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "FlatNas-Desktop-Portable-${version}.${ext}"
+    }
+  }
+}
