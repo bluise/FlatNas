@@ -1,6 +1,6 @@
 {
   "name": "flatnas-desktop",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "FlatNas 待办桌面小插件：透明背景、置顶、托盘常驻，与 FlatNas 待办事项双向同步",
   "main": "main.js",
