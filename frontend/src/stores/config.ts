@@ -3,6 +3,7 @@ import { defineStore } from "pinia";
 import { useStorage } from "@vueuse/core";
 import type { AppConfig, SystemConfig } from "@/types";
 import { resolveManagedUrl } from "@/utils/runtimeUrls";
+import { isRemoteVersionNewer } from "@/utils/version";
 
 export const useConfigStore = defineStore("config", () => {
   // Pure client-only states (NOT synced to server)
@@ -23,7 +24,7 @@ export const useConfigStore = defineStore("config", () => {
   const serverSyncLockCount = ref(0);
 
   // Version / update checking
-  const currentVersion = "1.2.6";
+  const currentVersion = "1.6.1";
   const latestVersion = ref("");
   const dockerUpdateAvailable = ref(false);
   const updateCheckLastAt = useStorage<number>("flat-nas-update-check-last-at", 0);
@@ -32,9 +33,9 @@ export const useConfigStore = defineStore("config", () => {
   const hasUpdate = computed(() => {
     if (dockerUpdateAvailable.value) return true;
     if (!latestVersion.value) return false;
-    const v1 = currentVersion.replace(/^v/, "");
-    const v2 = latestVersion.value.replace(/^v/, "");
-    return v1 !== v2;
+    // 只有远端版本确实更新才提示：原先用 `!==` 判断，
+    // 本地版本高于远端时（例如自己构建的版本）会一直弹"有更新"。
+    return isRemoteVersionNewer(latestVersion.value, currentVersion);
   });
 
   // Resource version for cache busting
