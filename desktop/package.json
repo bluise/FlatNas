@@ -1,7 +1,7 @@
 {
   "name": "flatnas-desktop",
   "private": true,
-  "version": "1.0.2",
+  "version": "1.0.3",
   "type": "module",
   "description": "FlatNas 待办桌面小插件（Tauri 2 + 系统 WebView2）",
   "author": "bluise",

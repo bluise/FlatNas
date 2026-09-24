@@ -1,6 +1,6 @@
 [package]
 name = "flatnas-desktop"
-version = "1.0.2"
+version = "1.0.3"
 description = "FlatNas 待办桌面小插件"
 authors = ["bluise"]
 license = "AGPL-3.0"
