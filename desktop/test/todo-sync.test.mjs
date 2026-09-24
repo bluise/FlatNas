@@ -1,9 +1,6 @@
-'use strict';
-
-const test = require('node:test');
-const assert = require('node:assert/strict');
-
-const { TodoSync, canonicalizeItems } = require('../src/todo-sync');
+import test from "node:test";
+import assert from "node:assert/strict";
+import { TodoSync, canonicalizeItems } from "../src/lib/todo-sync.js";
 
 function makeClient(overrides = {}) {
   const state = { saved: [], saves: 0, fetches: 0, remote: [], failSave: false, isConfigured: true };

@@ -12,7 +12,7 @@
  *   GET  /api/data             -> { widgets: [...] }          （列出待办组件用）
  */
 
-class FlatNasError extends Error {
+export class FlatNasError extends Error {
   constructor(message, { status = 0, body = null, kind = 'http' } = {}) {
     super(message);
     this.name = 'FlatNasError';
@@ -22,14 +22,14 @@ class FlatNasError extends Error {
   }
 }
 
-function normalizeBaseUrl(raw) {
+export function normalizeBaseUrl(raw) {
   let base = String(raw || '').trim();
   if (!base) return '';
   if (!/^https?:\/\//i.test(base)) base = 'http://' + base;
   return base.replace(/\/+$/, '');
 }
 
-class FlatNasClient {
+export class FlatNasClient {
   constructor({ baseUrl = '', fetchImpl = globalThis.fetch, timeoutMs = 10000 } = {}) {
     this.baseUrl = normalizeBaseUrl(baseUrl);
     this.fetchImpl = fetchImpl;
@@ -172,4 +172,3 @@ class FlatNasClient {
   }
 }
 
-module.exports = { FlatNasClient, FlatNasError, normalizeBaseUrl };

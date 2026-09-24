@@ -1,6 +1,7 @@
 node_modules/
+src-tauri/target/
+src-tauri/gen/
 dist/
-out/
 *.log
-.DS_Store
-Thumbs.db
+core
+core.*

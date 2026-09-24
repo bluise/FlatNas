@@ -1,75 +1,18 @@
 {
   "name": "flatnas-desktop",
-  "version": "1.0.1",
   "private": true,
-  "description": "FlatNas 待办桌面小插件：透明背景、置顶、托盘常驻，与 FlatNas 待办事项双向同步",
-  "main": "main.js",
+  "version": "1.0.2",
+  "type": "module",
+  "description": "FlatNas 待办桌面小插件（Tauri 2 + 系统 WebView2）",
   "author": "bluise",
   "license": "AGPL-3.0",
   "scripts": {
-    "start": "electron .",
-    "test": "node --test test/*.test.js",
-    "pack": "electron-builder --win --dir --publish never",
-    "dist": "electron-builder --win --publish never"
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "test": "node --test test/*.test.mjs",
+    "icons": "node tools/make-icons.mjs"
   },
   "devDependencies": {
-    "electron": "^44.4.5",
-    "electron-builder": "^26.15.3"
-  },
-  "build": {
-    "appId": "icu.flatnas.desktop",
-    "productName": "FlatNas待办",
-    "files": [
-      "main.js",
-      "preload.js",
-      "src/**/*",
-      "renderer/**/*",
-      "assets/**/*"
-    ],
-    "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        },
-        {
-          "target": "portable",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
-      "icon": "assets/icon.png",
-      "artifactName": "FlatNas-Desktop-${version}-${arch}.${ext}"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "shortcutName": "FlatNas待办",
-      "artifactName": "FlatNas-Desktop-Setup-${version}.${ext}",
-      "differentialPackage": false
-    },
-    "portable": {
-      "artifactName": "FlatNas-Desktop-Portable-${version}.${ext}"
-    },
-    "publish": [
-      {
-        "provider": "github",
-        "owner": "bluise",
-        "repo": "FlatNas"
-      }
-    ],
-    "electronLanguages": [
-      "zh-CN",
-      "en-US"
-    ],
-    "compression": "maximum"
-  },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/bluise/FlatNas.git"
+    "@tauri-apps/cli": "^2.11.5"
   }
 }

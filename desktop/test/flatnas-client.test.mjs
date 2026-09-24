@@ -1,9 +1,6 @@
-'use strict';
-
-const test = require('node:test');
-const assert = require('node:assert/strict');
-
-const { FlatNasClient, FlatNasError, normalizeBaseUrl } = require('../src/flatnas-client');
+import test from "node:test";
+import assert from "node:assert/strict";
+import { FlatNasClient, FlatNasError, normalizeBaseUrl } from "../src/lib/flatnas-client.js";
 
 /** 构造一个可编排的 fetch 假实现 */
 function makeFetch(handlers) {

@@ -8,11 +8,11 @@
   </head>
   <body>
     <div id="card" class="card">
-      <header class="card-header" id="drag-bar">
-        <div class="title-area">
+      <header class="card-header" id="drag-bar" data-tauri-drag-region>
+        <div class="title-area" data-tauri-drag-region>
           <span class="dot" id="status-dot" title="同步状态"></span>
-          <span class="title">待办</span>
-          <span class="counter" id="counter">0 / 0</span>
+          <span class="title" data-tauri-drag-region>待办</span>
+          <span class="counter" id="counter" data-tauri-drag-region>0 / 0</span>
         </div>
         <div class="actions">
           <button class="icon-btn" id="btn-pin" title="置顶显示">📌</button>
@@ -36,6 +36,6 @@
       </footer>
     </div>
 
-    <script src="index.js"></script>
+    <script type="module" src="index.js"></script>
   </body>
 </html>

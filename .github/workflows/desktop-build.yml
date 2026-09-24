@@ -1,15 +1,14 @@
 name: Build Desktop Widget (Windows)
 
 # 说明：GitHub 的 push 触发器里 paths 过滤与 tags 不能可靠地混用，
-# 所以这里用「手动触发 + 打下方 tag 时自动触发」两种方式。
+# 所以这里用「手动触发 + 打 tag 自动触发」两种方式。
 # 日常改 desktop/ 代码后，到 Actions 页点 Run workflow 即可。
 #
-# 用 desktop-* 前缀是为了和主程序的 v* tag 区分开：
-# v* 会同时触发 Docker 镜像构建与服务端 Release 打包，desktop-* 则只构建桌面插件。
+# 用 desktop-* 前缀和主程序的 v* 区分：v* 会同时触发 Docker 与服务端 Release 打包。
 on:
   workflow_dispatch:
   push:
-    tags: ["v*", "desktop-*"]
+    tags: ["desktop-*"]
 
 permissions:
   contents: write
@@ -18,9 +17,6 @@ jobs:
   build-windows:
     name: Build Windows exe
     runs-on: windows-latest
-    defaults:
-      run:
-        working-directory: desktop
 
     steps:
       - name: Checkout
@@ -33,39 +29,60 @@ jobs:
           cache: "npm"
           cache-dependency-path: desktop/package-lock.json
 
-      - name: Install dependencies
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - name: Install CLI
+        working-directory: desktop
         run: npm ci
 
-      - name: Unit tests
+      - name: JS unit tests
+        working-directory: desktop
         run: npm test
 
-      - name: Build installer + portable exe
-        run: npm run dist
-        env:
-          # 只构建，不发布（发布由下面的 Release 步骤负责）
-          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - name: Rust unit tests
+        working-directory: desktop/src-tauri
+        run: cargo test
 
-      - name: Show artifacts
-        run: Get-ChildItem dist | Format-Table Name, Length
+      - name: Build Tauri app (NSIS installer + exe)
+        working-directory: desktop
+        run: npx tauri build
+
+      - name: Rename installer to ASCII path
+        working-directory: desktop
         shell: pwsh
+        run: |
+          $bundle = "src-tauri\target\release\bundle\nsis"
+          Get-ChildItem "$bundle\*.exe" | ForEach-Object {
+            Write-Host "installer: $($_.Name)  $([math]::Round($_.Length/1MB,1)) MB"
+            Copy-Item $_.FullName "$bundle\FlatNas-Desktop-Setup.exe" -Force
+          }
+          $exe = "src-tauri\target\release\FlatNas待办.exe"
+          if (Test-Path $exe) {
+            Write-Host "portable exe: $([math]::Round((Get-Item $exe).Length/1MB,1)) MB"
+            Copy-Item $exe "src-tauri\target\release\FlatNas-Desktop-Portable.exe" -Force
+          }
 
-      - name: Upload as workflow artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: flatnas-desktop-windows
           if-no-files-found: error
           path: |
-            desktop/dist/*.exe
-            desktop/dist/*.blockmap
-            desktop/dist/latest.yml
+            desktop/src-tauri/target/release/bundle/nsis/FlatNas-Desktop-Setup.exe
+            desktop/src-tauri/target/release/FlatNas-Desktop-Portable.exe
 
       - name: Attach to Release (tag only)
         if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            desktop/dist/*.exe
-            desktop/dist/*.blockmap
-            desktop/dist/latest.yml
+            desktop/src-tauri/target/release/bundle/nsis/FlatNas-Desktop-Setup.exe
+            desktop/src-tauri/target/release/FlatNas-Desktop-Portable.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -7,9 +7,9 @@
  * 输出：assets/icon.png (256x256)、assets/tray.png (32x32)
  */
 
-const fs = require('node:fs');
-const path = require('node:path');
-const zlib = require('node:zlib');
+import fs from 'node:fs';
+import path from 'node:path';
+import zlib from 'node:zlib';
 
 const BG = [37, 99, 235]; // #2563eb FlatNas 蓝
 const FG = [255, 255, 255];
@@ -126,10 +126,48 @@ function makeIcon(size) {
   return encodePNG(size, size, rgba);
 }
 
-const outDir = path.join(__dirname, '..', 'assets');
+/** ICO 容器：直接把 PNG 塞进 ICONDIR 条目（Windows Vista+ 支持） */
+function encodeICO(sizes) {
+  const images = sizes.map((size) => ({ size, data: makeIcon(size) }));
+  const header = Buffer.alloc(6);
+  header.writeUInt16LE(0, 0); // reserved
+  header.writeUInt16LE(1, 2); // type: icon
+  header.writeUInt16LE(images.length, 4);
+
+  const entries = Buffer.alloc(16 * images.length);
+  let offset = 6 + 16 * images.length;
+  images.forEach((img, index) => {
+    const base = index * 16;
+    entries[base] = img.size >= 256 ? 0 : img.size; // 0 表示 256
+    entries[base + 1] = img.size >= 256 ? 0 : img.size;
+    entries[base + 2] = 0; // 调色板数
+    entries[base + 3] = 0; // reserved
+    entries.writeUInt16LE(1, base + 4); // color planes
+    entries.writeUInt16LE(32, base + 6); // bits per pixel
+    entries.writeUInt32LE(img.data.length, base + 8);
+    entries.writeUInt32LE(offset, base + 12);
+    offset += img.data.length;
+  });
+
+  return Buffer.concat([header, entries, ...images.map((img) => img.data)]);
+}
+
+const here = path.dirname(new URL(import.meta.url).pathname);
+const outDir = path.join(here, '..', 'src-tauri', 'icons');
 fs.mkdirSync(outDir, { recursive: true });
-for (const [name, size] of [['icon.png', 256], ['tray.png', 32]]) {
+
+const pngTargets = [
+  ['icon.png', 256],
+  ['tray.png', 32],
+];
+for (const [name, size] of pngTargets) {
   const file = path.join(outDir, name);
   fs.writeFileSync(file, makeIcon(size));
   console.log(`${name}  ${size}x${size}  ${fs.statSync(file).size} bytes`);
 }
+
+// Tauri 打包用：icon.ico（Windows）+ 若干尺寸的 png
+const icoFile = path.join(outDir, 'icon.ico');
+fs.writeFileSync(icoFile, encodeICO([16, 32, 48, 64, 128, 256]));
+console.log(`icon.ico  16/32/48/64/128/256  ${fs.statSync(icoFile).size} bytes`);
+

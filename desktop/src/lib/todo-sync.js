@@ -17,14 +17,14 @@ const SAVE_RETRY_MAX_MS = 60000;
 let idCounter = 0;
 
 /** 生成唯一 id：不用 Date.now() 兜底，避免同一毫秒内多条撞号 */
-function createId() {
+export function createId() {
   idCounter = (idCounter + 1) % 1e6;
   const rand = Math.random().toString(36).slice(2, 8);
   return `todo-${Date.now().toString(36)}-${idCounter.toString(36)}-${rand}`;
 }
 
 /** 归一化：补齐缺失 id、去重 id、统一字段类型 */
-function canonicalizeItems(value) {
+export function canonicalizeItems(value) {
   if (!Array.isArray(value)) return [];
   const seen = new Set();
   const out = [];
@@ -42,10 +42,10 @@ function canonicalizeItems(value) {
   return out;
 }
 
-const snapshot = (items) =>
+export const snapshot = (items) =>
   JSON.stringify(items.map((i) => ({ id: i.id, text: i.text, done: i.done })));
 
-class TodoSync {
+export class TodoSync {
   /**
    * @param {object} opts
    * @param {import('./flatnas-client').FlatNasClient} opts.client
@@ -255,4 +255,3 @@ class TodoSync {
   }
 }
 
-module.exports = { TodoSync, canonicalizeItems, createId, snapshot };
