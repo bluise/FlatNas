@@ -123,17 +123,20 @@ FlatNas 后端集成了智能网络环境识别功能，能够根据用户的访
 
 ## 🖥️ 桌面小插件（Windows）
 
-`desktop/` 目录下是一个 Windows 桌面待办小插件（Electron），类似敬业签：
+`desktop/` 目录下是一个 Windows 桌面待办小插件（Tauri 2 + 系统 WebView2），类似敬业签。
+安装包仅约 **1.7 MB**（免安装单文件版约 4.3 MB）：
 
 - 无边框 + **背景透明**（透明度/配色/字号可调）、置顶显示、托盘常驻、关窗不退
 - **与本项目的「待办事项」组件双向同步**（同一份数据），支持离线改动、断网重试、冲突重试
 - 鼠标穿透（`Ctrl+Alt+L`）、开机自启、隐藏任务栏图标
 
+从 [Releases](https://github.com/bluise/FlatNas/releases) 下载 `FlatNas-Desktop-Setup.exe` 直接安装即可。
+
 ```bash
 cd desktop
 npm install
-npm start        # 开发运行
-npm run dist     # 打包 exe（NSIS 安装包 + 免安装版）
+npm run dev      # 开发运行
+npm run build    # 打包 exe（需要 Rust 1.77+）
 ```
 
 也可以从 [Actions](https://github.com/bluise/FlatNas/actions/workflows/desktop-build.yml) 手动触发
