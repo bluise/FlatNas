@@ -1,12 +1,15 @@
 name: Build Desktop Widget (Windows)
 
 # 说明：GitHub 的 push 触发器里 paths 过滤与 tags 不能可靠地混用，
-# 所以这里用「手动触发 + 打 v* tag 时自动触发」两种方式。
+# 所以这里用「手动触发 + 打下方 tag 时自动触发」两种方式。
 # 日常改 desktop/ 代码后，到 Actions 页点 Run workflow 即可。
+#
+# 用 desktop-* 前缀是为了和主程序的 v* tag 区分开：
+# v* 会同时触发 Docker 镜像构建与服务端 Release 打包，desktop-* 则只构建桌面插件。
 on:
   workflow_dispatch:
   push:
-    tags: ["v*"]
+    tags: ["v*", "desktop-*"]
 
 permissions:
   contents: write
