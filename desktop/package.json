@@ -49,7 +49,8 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "shortcutName": "FlatNas待办",
-      "artifactName": "FlatNas-Desktop-Setup-${version}.${ext}"
+      "artifactName": "FlatNas-Desktop-Setup-${version}.${ext}",
+      "differentialPackage": false
     },
     "portable": {
       "artifactName": "FlatNas-Desktop-Portable-${version}.${ext}"
@@ -60,7 +61,12 @@
         "owner": "bluise",
         "repo": "FlatNas"
       }
-    ]
+    ],
+    "electronLanguages": [
+      "zh-CN",
+      "en-US"
+    ],
+    "compression": "maximum"
   },
   "repository": {
     "type": "git",
