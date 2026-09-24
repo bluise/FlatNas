@@ -39,7 +39,7 @@ jobs:
       - name: Build installer + portable exe
         run: npm run dist
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 只构建，不发布（发布由下面的 Release 步骤负责）
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
       - name: Show artifacts

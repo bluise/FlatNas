@@ -53,6 +53,17 @@
     },
     "portable": {
       "artifactName": "FlatNas-Desktop-Portable-${version}.${ext}"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "bluise",
+        "repo": "FlatNas"
+      }
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bluise/FlatNas.git"
   }
 }
