@@ -57,6 +57,13 @@
       "pcWallpaper": "PC 桌布",
       "mobileWallpaper": "行動裝置桌布"
     },
+    "network": {
+      "internalDomains": "內部網域",
+      "networkRules": "網路規則",
+      "forceMode": "強制網路模式",
+      "latencyThreshold": "延遲閾值",
+      "presets": "預設規則"
+    },
     "daylight": {
       "title": "日間/夜間模式",
       "enable": "啟用自動切換",

@@ -57,6 +57,13 @@
       "pcWallpaper": "PC Wallpaper",
       "mobileWallpaper": "Mobile Wallpaper"
     },
+    "network": {
+      "internalDomains": "Internal Domains",
+      "networkRules": "Network Rules",
+      "forceMode": "Force Network Mode",
+      "latencyThreshold": "Latency Threshold",
+      "presets": "Presets"
+    },
     "daylight": {
       "title": "Daylight Mode",
       "enable": "Enable Auto Switch",

@@ -1,120 +1,203 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   clearLanProbeCache,
   decideBookmarkTarget,
-  getLocalNetworkPermission,
-  isOutcomeTrustworthy,
+  isMixedContentBlocked,
   peekLanProbe,
+  probeAnyReachable,
   probeLanUrl,
-  type LocalNetworkPermission,
 } from "./lanProbe";
 
-// 这些用例锁住的是「公网 HTTPS 页面能不能测内网地址」这件事的实测结论：
-// 未授权时失败必须当成 unknown（否则会误判成「不在内网」，在外面以外也都好用，
-// 但在家就会白白走外网）；授权后失败才是真不可达。
+const noop = () => {};
 
-const LAN = "http://10.0.0.1:5666/";
-const okFetch = () => Promise.resolve(new Response(null, { status: 200 }));
-const failFetch = () => Promise.reject(new TypeError("Failed to fetch"));
+describe("isMixedContentBlocked", () => {
+  it("HTTPS 页面探测 HTTP 内网地址会被浏览器拦截", () => {
+    expect(isMixedContentBlocked("http://192.168.1.5:8080", "https:")).toBe(true);
+  });
 
-const perm = (state: LocalNetworkPermission) => () => Promise.resolve(state);
+  it("HTTP 页面、或目标是 HTTPS 时不算 Mixed Content", () => {
+    expect(isMixedContentBlocked("http://192.168.1.5:8080", "http:")).toBe(false);
+    expect(isMixedContentBlocked("https://nas.local", "https:")).toBe(false);
+  });
+
+  it("空值不算", () => {
+    expect(isMixedContentBlocked("", "https:")).toBe(false);
+  });
+});
 
 describe("probeLanUrl", () => {
   beforeEach(() => clearLanProbeCache());
 
-  it("探测成功 → reachable（Mixed Content 只警告不拦，这条路是通的）", async () => {
-    const outcome = await probeLanUrl(LAN, { fetchImpl: okFetch, queryPermission: perm("prompt") });
+  it("能拿到 opaque 响应 → 判定内网可达", async () => {
+    const fetchImpl = vi.fn(async () => ({ type: "opaque" })) as unknown as typeof fetch;
+    const outcome = await probeLanUrl("http://192.168.1.5:8080", { fetchImpl, pageProtocol: "http:" });
     expect(outcome).toBe("reachable");
-    expect(peekLanProbe(LAN)).toBe("reachable");
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const init = (fetchImpl as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][1] as RequestInit;
+    expect(init.mode).toBe("no-cors");
+    expect(init.cache).toBe("no-store");
   });
 
-  it("权限已授予 + 探测失败 → unreachable（可以放心走外网）", async () => {
-    const outcome = await probeLanUrl(LAN, { fetchImpl: failFetch, queryPermission: perm("granted") });
+  it("连接失败 → 判定不可达", async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw new TypeError("Failed to fetch");
+    }) as unknown as typeof fetch;
+    expect(await probeLanUrl("http://192.168.1.5:8080", { fetchImpl, pageProtocol: "http:" })).toBe("unreachable");
+  });
+
+  it("Mixed Content 场景直接返回 blocked，且不发请求", async () => {
+    const fetchImpl = vi.fn(noop) as unknown as typeof fetch;
+    expect(await probeLanUrl("http://192.168.1.5:8080", { fetchImpl, pageProtocol: "https:" })).toBe("blocked");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("空值/非法协议返回 skipped", async () => {
+    const fetchImpl = vi.fn(noop) as unknown as typeof fetch;
+    expect(await probeLanUrl("", { fetchImpl })).toBe("skipped");
+    expect(await probeLanUrl("javascript:alert(1)", { fetchImpl })).toBe("skipped");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("结果进缓存，重复探测不再发请求", async () => {
+    const fetchImpl = vi.fn(async () => ({ type: "opaque" })) as unknown as typeof fetch;
+    await probeLanUrl("http://192.168.1.5:8080", { fetchImpl, pageProtocol: "http:" });
+    await probeLanUrl("http://192.168.1.5:8080", { fetchImpl, pageProtocol: "http:" });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(peekLanProbe("http://192.168.1.5:8080")).toBe("reachable");
+  });
+
+  it("缓存过期后会重新探测", async () => {
+    let now = 1000;
+    const fetchImpl = vi.fn(async () => ({ type: "opaque" })) as unknown as typeof fetch;
+    const deps = { fetchImpl, pageProtocol: "http:", now: () => now, ttlMs: 1000 };
+    await probeLanUrl("http://192.168.1.5:8080", deps);
+    now = 1500;
+    expect(peekLanProbe("http://192.168.1.5:8080", { now: () => now, ttlMs: 1000 })).toBe("reachable");
+    await probeLanUrl("http://192.168.1.5:8080", deps);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+
+    now = 3000; // 超过 TTL
+    expect(peekLanProbe("http://192.168.1.5:8080", { now: () => now, ttlMs: 1000 })).toBeNull();
+    await probeLanUrl("http://192.168.1.5:8080", deps);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("超时会中止请求并判为不可达", async () => {
+    const fetchImpl = ((_url: string, init?: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          const err = new Error("aborted");
+          err.name = "AbortError";
+          reject(err);
+        });
+      })) as unknown as typeof fetch;
+    const outcome = await probeLanUrl("http://192.168.1.5:8080", {
+      fetchImpl,
+      pageProtocol: "http:",
+      timeoutMs: 20,
+    });
     expect(outcome).toBe("unreachable");
-    expect(peekLanProbe(LAN)).toBe("unreachable");
-  });
-
-  it("权限未授予（prompt/denied）+ 探测失败 → unknown（绝不能当成不在内网）", async () => {
-    expect(await probeLanUrl(LAN, { fetchImpl: failFetch, queryPermission: perm("prompt") })).toBe("unknown");
-    clearLanProbeCache();
-    expect(await probeLanUrl(LAN, { fetchImpl: failFetch, queryPermission: perm("denied") })).toBe("unknown");
-    // unknown 不写缓存，避免把「测不出来」当成结论缓存住
-    expect(peekLanProbe(LAN)).toBe(null);
-  });
-
-  it("浏览器没有这道权限门（旧版 Chrome / Firefox / Safari）→ 失败即真不可达", async () => {
-    const outcome = await probeLanUrl(LAN, { fetchImpl: failFetch, queryPermission: perm("unsupported") });
-    expect(outcome).toBe("unreachable");
-  });
-
-  it("结果会缓存，短时间内重复探测不再发请求", async () => {
-    let calls = 0;
-    const counting = () => {
-      calls++;
-      return Promise.resolve(new Response(null, { status: 200 }));
-    };
-    await probeLanUrl(LAN, { fetchImpl: counting, queryPermission: perm("granted") });
-    await probeLanUrl(LAN, { fetchImpl: counting, queryPermission: perm("granted") });
-    expect(calls).toBe(1);
-  });
-
-  it("force 可以绕过缓存重新探测", async () => {
-    let calls = 0;
-    const counting = () => {
-      calls++;
-      return Promise.resolve(new Response(null, { status: 200 }));
-    };
-    await probeLanUrl(LAN, { fetchImpl: counting, queryPermission: perm("granted") });
-    await probeLanUrl(LAN, { fetchImpl: counting, queryPermission: perm("granted"), force: true });
-    expect(calls).toBe(2);
-  });
-
-  it("非 http(s) 地址不探测", async () => {
-    expect(await probeLanUrl("file:///x", { fetchImpl: okFetch })).toBe("unknown");
-    expect(await probeLanUrl("", { fetchImpl: okFetch })).toBe("unknown");
   });
 });
 
-describe("getLocalNetworkPermission", () => {
-  it("透传浏览器返回的状态", async () => {
-    expect(await getLocalNetworkPermission(perm("granted"))).toBe("granted");
-    expect(await getLocalNetworkPermission(perm("prompt"))).toBe("prompt");
+describe("probeAnyReachable", () => {
+  beforeEach(() => clearLanProbeCache());
+
+  it("任意一个可达即返回 reachable", async () => {
+    const fetchImpl = (async (url: string) => {
+      if (String(url).includes("192.168.1.9")) throw new TypeError("Failed to fetch");
+      return { type: "opaque" };
+    }) as unknown as typeof fetch;
+    const outcome = await probeAnyReachable(["http://192.168.1.9:1", "http://192.168.1.5:8080"], {
+      fetchImpl,
+      pageProtocol: "http:",
+    });
+    expect(outcome).toBe("reachable");
   });
 
-  it("query 抛错（浏览器不认识该权限名）→ unsupported", async () => {
-    expect(await getLocalNetworkPermission(() => Promise.reject(new Error("unknown permission")))).toBe(
-      "unsupported",
+  it("全部不可达返回 unreachable", async () => {
+    const fetchImpl = (async () => {
+      throw new TypeError("Failed to fetch");
+    }) as unknown as typeof fetch;
+    const outcome = await probeAnyReachable(["http://192.168.1.9:1", "http://192.168.1.5:8080"], {
+      fetchImpl,
+      pageProtocol: "http:",
+    });
+    expect(outcome).toBe("unreachable");
+  });
+
+  it("全部被 Mixed Content 拦截时返回 blocked，交给规则回退", async () => {
+    const fetchImpl = vi.fn(noop) as unknown as typeof fetch;
+    const outcome = await probeAnyReachable(["http://192.168.1.9:1"], { fetchImpl, pageProtocol: "https:" });
+    expect(outcome).toBe("blocked");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("没有可探测地址时返回 skipped", async () => {
+    expect(await probeAnyReachable([])).toBe("skipped");
+    expect(await probeAnyReachable(["", "   "])).toBe("skipped");
+  });
+
+  it("重复地址会去重", async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw new TypeError("Failed to fetch");
+    }) as unknown as typeof fetch;
+    await probeAnyReachable(["http://192.168.1.5:8080", "http://192.168.1.5:8080"], {
+      fetchImpl,
+      pageProtocol: "http:",
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("decideBookmarkTarget：内网优先，不通回退外网", () => {
+  const base = {
+    url: "https://nas.example.com",
+    lanUrl: "http://192.168.1.5:8080",
+    loggedIn: true,
+    forceMode: "auto" as const,
+    effectiveIsLan: false,
+  };
+
+  it("实测内网可达 → 用内网地址", () => {
+    expect(decideBookmarkTarget({ ...base, probeOutcome: "reachable" })).toBe(base.lanUrl);
+  });
+
+  it("实测内网不可达 → 回退外网地址", () => {
+    expect(decideBookmarkTarget({ ...base, probeOutcome: "unreachable" })).toBe(base.url);
+  });
+
+  it("实测不可达时会覆盖全局推断（全局说内网也照样回退外网）", () => {
+    expect(
+      decideBookmarkTarget({ ...base, effectiveIsLan: true, probeOutcome: "unreachable" }),
+    ).toBe(base.url);
+  });
+
+  it("探不出结论（Mixed Content 拦截）→ 退回全局推断", () => {
+    expect(decideBookmarkTarget({ ...base, probeOutcome: "blocked" })).toBe(base.url);
+    expect(decideBookmarkTarget({ ...base, probeOutcome: "blocked", effectiveIsLan: true })).toBe(
+      base.lanUrl,
+    );
+    expect(decideBookmarkTarget({ ...base, probeOutcome: "skipped", effectiveIsLan: true })).toBe(
+      base.lanUrl,
     );
   });
-});
 
-describe("isOutcomeTrustworthy", () => {
-  it("只有 granted / unsupported 时，探测失败才可信", () => {
-    expect(isOutcomeTrustworthy("granted")).toBe(true);
-    expect(isOutcomeTrustworthy("unsupported")).toBe(true);
-    expect(isOutcomeTrustworthy("prompt")).toBe(false);
-    expect(isOutcomeTrustworthy("denied")).toBe(false);
-  });
-});
-
-describe("decideBookmarkTarget", () => {
-  const lan = "http://10.0.0.1:5666/";
-  const wan = "https://nas.example.com/";
-
-  it("实测可达 → 内网地址", () => {
-    expect(decideBookmarkTarget(lan, wan, "reachable")).toBe(lan);
+  it("未登录 / 没配内网地址 → 只用外网地址", () => {
+    expect(decideBookmarkTarget({ ...base, loggedIn: false, probeOutcome: "reachable" })).toBe(base.url);
+    expect(decideBookmarkTarget({ ...base, lanUrl: "", probeOutcome: "reachable" })).toBe(base.url);
   });
 
-  it("实测不可达（已授权）→ 外网地址", () => {
-    expect(decideBookmarkTarget(lan, wan, "unreachable")).toBe(wan);
+  it("强制档按全局推断走，不做探测结论覆盖", () => {
+    expect(
+      decideBookmarkTarget({ ...base, forceMode: "wan", effectiveIsLan: false, probeOutcome: "reachable" }),
+    ).toBe(base.url);
+    expect(
+      decideBookmarkTarget({ ...base, forceMode: "lan", effectiveIsLan: true, probeOutcome: "unreachable" }),
+    ).toBe(base.lanUrl);
   });
 
-  it("测不出来 → 内网优先（界面会给一键切外网的退路）", () => {
-    expect(decideBookmarkTarget(lan, wan, "unknown")).toBe(lan);
-  });
-
-  it("没配内网地址 → 外网地址；只有内网地址 → 内网地址", () => {
-    expect(decideBookmarkTarget("", wan, "reachable")).toBe(wan);
-    expect(decideBookmarkTarget(lan, "", "unreachable")).toBe(lan);
+  it("只配了内网地址时，回退结果是空串（由调用方决定不跳转/提示登录）", () => {
+    expect(decideBookmarkTarget({ ...base, url: "", probeOutcome: "unreachable" })).toBe("");
   });
 });

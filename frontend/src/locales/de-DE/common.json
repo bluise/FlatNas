@@ -57,6 +57,13 @@
       "pcWallpaper": "PC-Hintergrundbild",
       "mobileWallpaper": "Mobiles Hintergrundbild"
     },
+    "network": {
+      "internalDomains": "Interne Domänen",
+      "networkRules": "Netzwerkregeln",
+      "forceMode": "Netzwerkmodus erzwingen",
+      "latencyThreshold": "Latenzschwelle",
+      "presets": "Voreinstellungen"
+    },
     "daylight": {
       "title": "Tag-/Nachtmodus",
       "enable": "Automatische Umschaltung aktivieren",

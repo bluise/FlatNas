@@ -57,6 +57,13 @@
       "pcWallpaper": "PC 壁纸",
       "mobileWallpaper": "移动端壁纸"
     },
+    "network": {
+      "internalDomains": "内网域名",
+      "networkRules": "网络规则",
+      "forceMode": "强制网络模式",
+      "latencyThreshold": "延迟阈值",
+      "presets": "预设规则"
+    },
     "daylight": {
       "title": "日间/夜间模式",
       "enable": "启用自动切换",

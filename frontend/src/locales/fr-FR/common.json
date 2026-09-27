@@ -57,6 +57,13 @@
       "pcWallpaper": "Fond d'écran PC",
       "mobileWallpaper": "Fond d'écran mobile"
     },
+    "network": {
+      "internalDomains": "Domaines internes",
+      "networkRules": "Règles réseau",
+      "forceMode": "Forcer le mode réseau",
+      "latencyThreshold": "Seuil de latence",
+      "presets": "Préréglages"
+    },
     "daylight": {
       "title": "Mode jour/nuit",
       "enable": "Activer le basculement automatique",

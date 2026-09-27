@@ -1,43 +1,28 @@
 /**
- * 内网地址可达性探测 —— FlatNas 在公网 VPS 上判断「现在能不能走内网」的唯一可靠手段。
+ * 浏览器侧「内网地址可达性」探测。
  *
- * # 为什么这条路是通的（以下都是实测数据，不是推测）
+ * 为什么需要它：原来的内网判定回答的是「**客户端是否与 FlatNas 服务器处于同一内网**」——
+ * 用访问 FlatNas 的域名是不是私网、以及服务端看到的客户端 IP 是不是私网来判断。
+ * 这套逻辑只在 FlatNas 部署在同一局域网内（例如装在 NAS 上、你用 192.168.x.x 访问）时成立。
  *
- * 用真实 Chromium 在「公网 HTTPS 页面」里对 `http://<私网 IP>:端口` 发起
- * `fetch(url, { mode: "no-cors" })`：
+ * FlatNas 部署在公网 VPS 时，两个条件在结构上永远不成立：
+ *   - 你用的是公网域名/VPS IP 访问 → hostname 不是私网；
+ *   - 服务端看到的是你**家庭出口的公网 IP** → 也不是私网。
+ * 所以「内网判定」永远命中不了。
  *
- * | 场景 | 结果 |
- * |---|---|
- * | 未授予「本地网络访问」权限 | ❌ `TypeError: Failed to fetch`（4~8ms） |
- * | 已授予该权限、地址可达 | ✅ 返回 opaque 响应（`status 0`, `type "opaque"`） |
- * | 已授予该权限、地址不可达 | ❌ `TypeError: Failed to fetch`（3~6ms） |
+ * 真正该问的问题是：**浏览器能不能直接访问这个书签配置的内网地址**。
+ * 只有浏览器知道答案，所以这里用一次极短的探测来回答：
+ *   - `fetch(url, { mode: 'no-cors' })` 拿到 opaque 响应 → 网络层可达（DNS/TCP/HTTP 都通）→ 用内网地址
+ *   - 抛错（连接被拒 / DNS 失败 / 超时）→ 不可达 → 用外网地址
+ * 局域网 RTT 通常 < 5ms，350ms 超时足够，且结果会缓存，点击时基本不需要等待。
  *
- * 两个容易踩的误解：
- *
- * 1. **Mixed Content 并不会拦住它** —— Chrome 只打一条 warning
- *    （"This content should also be served over HTTPS."），请求照发。
- *    历史上 FlatNas 里写过一句「页面是 HTTPS + 目标是 HTTP → 直接放弃」，
- *    于是探测从来没真正执行过，内网判定自然永远是空的。
- *
- * 2. 真正拦截的是 **Private Network Access / Local Network Access**：
- *    公网来源访问私网地址需要授权。控制台会写
- *    `... has been blocked by CORS policy: Permission was denied for this request to access the local network`。
- *    这个权限**可以授予**（`navigator.permissions.query({name:"local-network-access"})` 返回
- *    `prompt`，用户允许后变成 `granted`）。授予后探测结果就完全可信。
- *
- * # 因此这里的策略
- *
- * - 探测「成功」→ 一定是可达（内网地址可用）。
- * - 探测「失败」→ 只有在**能确认权限已授予**（或该浏览器没有这道权限门）时才判定为不可达；
- *   否则返回 `unknown`，交给上层用「内网优先 + 一键切外网」兜底，绝不误判成外网。
+ * 已知限制：页面是 HTTPS、目标内网地址是 HTTP 时，浏览器会按 Mixed Content 直接拦截，
+ * 探测拿不到有效结论（返回 `blocked`），此时应回退到规则/手动模式。
  */
 
-export type LanProbeOutcome = "reachable" | "unreachable" | "unknown";
+export type LanProbeOutcome = "reachable" | "unreachable" | "blocked" | "skipped";
 
-/** 浏览器「本地网络访问」权限状态 */
-export type LocalNetworkPermission = "granted" | "denied" | "prompt" | "unsupported";
-
-export const DEFAULT_PROBE_TIMEOUT_MS = 1200;
+export const DEFAULT_PROBE_TIMEOUT_MS = 350;
 export const DEFAULT_PROBE_TTL_MS = 60_000;
 
 type ProbeDeps = {
@@ -45,24 +30,25 @@ type ProbeDeps = {
   now?: () => number;
   timeoutMs?: number;
   ttlMs?: number;
-  queryPermission?: () => Promise<LocalNetworkPermission>;
+  pageProtocol?: string;
 };
 
 const cache = new Map<string, { at: number; outcome: LanProbeOutcome }>();
 
-// 探测成功等价于「权限已授予」，记下来供设置页/横幅显示，省掉一次 query
-let cachedPermission: LocalNetworkPermission | null = null;
-export function setCachedPermission(state: LocalNetworkPermission): void {
-  cachedPermission = state;
-}
-export function getCachedPermission(): LocalNetworkPermission | null {
-  return cachedPermission;
+/** 页面 HTTPS + 目标是 HTTP 时，浏览器必然拦截，探也没用 */
+export function isMixedContentBlocked(
+  targetUrl: string,
+  pageProtocol = typeof location !== "undefined" ? location.protocol : "http:",
+): boolean {
+  const raw = String(targetUrl || "").trim().toLowerCase();
+  if (!raw) return false;
+  return pageProtocol === "https:" && raw.startsWith("http://");
 }
 
-/** 只探测 http(s)，其它协议（file:、javascript: 等）直接跳过 */
-export function isProbeableUrl(targetUrl: string): boolean {
+function looksLikeUsableUrl(targetUrl: string): boolean {
   const raw = String(targetUrl || "").trim();
   if (!raw) return false;
+  // 只探测 http(s)，避免 file: / javascript: 之类
   return /^https?:\/\//i.test(raw) || raw.startsWith("//");
 }
 
@@ -74,51 +60,8 @@ function absoluteUrl(targetUrl: string): string {
   return raw;
 }
 
-/**
- * 查询浏览器的「本地网络访问」权限。
- *
- * - `unsupported`：浏览器不认识这个权限名（旧版 Chrome / Firefox / Safari）。
- *   这些浏览器里没有这道权限门，探测失败就是真不可达。
- */
-export async function getLocalNetworkPermission(
-  queryPermission?: () => Promise<LocalNetworkPermission>,
-): Promise<LocalNetworkPermission> {
-  if (queryPermission) {
-    try {
-      return await queryPermission();
-    } catch {
-      return "unsupported";
-    }
-  }
-  try {
-    const permissions = (typeof navigator !== "undefined" ? navigator : undefined)?.permissions;
-    if (!permissions?.query) return "unsupported";
-    const status = await permissions.query({
-      name: "local-network-access" as PermissionName,
-    });
-    const state = status?.state;
-    if (state === "granted" || state === "denied" || state === "prompt") return state;
-    return "unsupported";
-  } catch {
-    return "unsupported";
-  }
-}
-
-/**
- * 探测结论是否可信。
- *
- * 权限已授予、或浏览器没有这道门 → 失败即真不可达。
- * 处于 `prompt` / `denied` → 失败也可能只是被权限挡住，不能当成「不在内网」。
- */
-export function isOutcomeTrustworthy(permission: LocalNetworkPermission): boolean {
-  return permission === "granted" || permission === "unsupported";
-}
-
 /** 读缓存（不触发探测） */
-export function peekLanProbe(
-  targetUrl: string,
-  { now = Date.now, ttlMs = DEFAULT_PROBE_TTL_MS }: ProbeDeps = {},
-): LanProbeOutcome | null {
+export function peekLanProbe(targetUrl: string, { now = Date.now, ttlMs = DEFAULT_PROBE_TTL_MS }: ProbeDeps = {}): LanProbeOutcome | null {
   const key = absoluteUrl(targetUrl);
   const hit = cache.get(key);
   if (!hit) return null;
@@ -134,38 +77,30 @@ export function clearLanProbeCache(): void {
 }
 
 /**
- * 探测一个地址是否可达。
- *
- * 结果是 `reachable` / `unreachable` / `unknown`，只有前两者可信；
- * `unknown` 表示「测不出来」（多半是权限没给），上层应按「内网优先」处理。
- *
- * 结果会缓存（默认 60 秒），因此重复点击几乎无成本。
+ * 探测一个内网地址是否可达。结果会写入缓存，因此重复调用几乎无成本。
  */
-export async function probeLanUrl(
-  targetUrl: string,
-  deps: ProbeDeps & { force?: boolean } = {},
-): Promise<LanProbeOutcome> {
+export async function probeLanUrl(targetUrl: string, deps: ProbeDeps = {}): Promise<LanProbeOutcome> {
   const {
     fetchImpl = typeof fetch !== "undefined" ? fetch : undefined,
     now = Date.now,
     timeoutMs = DEFAULT_PROBE_TIMEOUT_MS,
     ttlMs = DEFAULT_PROBE_TTL_MS,
-    queryPermission,
-    force = false,
+    pageProtocol,
   } = deps;
 
   const raw = String(targetUrl || "").trim();
-  if (!isProbeableUrl(raw)) return "unknown";
+  if (!looksLikeUsableUrl(raw)) return "skipped";
 
   const url = absoluteUrl(raw);
-  if (!force) {
-    const cached = peekLanProbe(url, { now, ttlMs });
-    if (cached) return cached;
-  }
-  if (!fetchImpl) return "unknown";
 
-  // 先看权限：未授予时，探测失败不能解读成「不在内网」
-  const permission = await getLocalNetworkPermission(queryPermission);
+  const cached = peekLanProbe(url, { now, ttlMs });
+  if (cached) return cached;
+
+  if (isMixedContentBlocked(url, pageProtocol)) {
+    // 不写缓存：页面协议变了（比如换用 http 访问）结论就不同了
+    return "blocked";
+  }
+  if (!fetchImpl) return "skipped";
 
   let outcome: LanProbeOutcome;
   const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
@@ -179,37 +114,90 @@ export async function probeLanUrl(
     });
     // no-cors 下只能拿到 opaque 响应，但能拿到就说明网络层通了
     outcome = "reachable";
-    setCachedPermission("granted");
   } catch {
-    outcome = isOutcomeTrustworthy(permission) ? "unreachable" : "unknown";
+    outcome = "unreachable";
   } finally {
     if (timer) clearTimeout(timer);
   }
 
-  if (outcome !== "unknown") {
-    cache.set(url, { at: now(), outcome });
-  }
+  cache.set(url, { at: now(), outcome });
   return outcome;
 }
 
 /**
- * 由探测结论决定这次走哪个地址。
- *
- * | 探测结论 | 结果 |
- * |---|---|
- * | `reachable` | 用内网地址 |
- * | `unreachable`（权限已授权，确认不可达） | 用外网地址 |
- * | `unknown`（多半是权限没给） | 用内网地址，并由界面给出「改用外网」的退路 |
+ * 批量探测（带去重与并发上限），返回「是否存在可达的内网地址」。
+ * 用于在页面加载后预热缓存，并给全局「当前是否处于内网」提供依据。
  */
-export function decideBookmarkTarget(
-  lanUrl: string,
-  wanUrl: string,
-  outcome: LanProbeOutcome,
-): string {
-  const lan = String(lanUrl || "").trim();
-  const wan = String(wanUrl || "").trim();
-  if (!lan) return wan;
-  if (outcome === "reachable") return lan;
-  if (outcome === "unreachable") return wan || lan;
-  return lan;
+export async function probeAnyReachable(
+  urls: string[],
+  { concurrency = 4, ...deps }: ProbeDeps & { concurrency?: number } = {},
+): Promise<LanProbeOutcome> {
+  const candidates = Array.from(
+    new Set(
+      (urls || [])
+        .map((u) => String(u || "").trim())
+        .filter((u) => looksLikeUsableUrl(u))
+        .map((u) => absoluteUrl(u)),
+    ),
+  );
+  if (candidates.length === 0) return "skipped";
+
+  let blockedCount = 0;
+  let cursor = 0;
+
+  const worker = async (): Promise<LanProbeOutcome> => {
+    while (cursor < candidates.length) {
+      const url = candidates[cursor++];
+      const outcome = await probeLanUrl(url, deps);
+      if (outcome === "reachable") return "reachable";
+      if (outcome === "blocked") blockedCount += 1;
+    }
+    return "unreachable";
+  };
+
+  const results = await Promise.all(
+    Array.from({ length: Math.min(concurrency, candidates.length) }, () => worker()),
+  );
+  if (results.includes("reachable")) return "reachable";
+  // 全部被 Mixed Content 拦住时，交给上层回退到规则/手动
+  return blockedCount > 0 && blockedCount === candidates.length ? "blocked" : "unreachable";
+}
+
+export type TargetDecisionInput = {
+  url?: string;
+  lanUrl?: string;
+  loggedIn: boolean;
+  forceMode: "auto" | "lan" | "wan" | "latency";
+  /** 全局推断结果（域名/IP/白名单/延迟），仅在探不出结论时使用 */
+  effectiveIsLan: boolean;
+  /** 本条书签内网地址的探测结论 */
+  probeOutcome: LanProbeOutcome;
+};
+
+/**
+ * 决定点开书签时用哪个地址 —— 「**内网优先，内网不通再走外网**」。
+ *
+ * | 情况 | 结果 |
+ * |---|---|
+ * | 未登录 / 没配内网地址 | 用外网地址 |
+ * | 自动模式 + 实测内网可达 | **用内网地址** |
+ * | 自动模式 + 实测内网不可达 | 用外网地址（回退） |
+ * | 自动模式 + 探不了（HTTPS 页面探 HTTP 地址被浏览器拦截） | 退回全局推断 |
+ * | 强制内网/外网/延迟档 | 按全局推断结果 |
+ */
+export function decideBookmarkTarget({
+  url = "",
+  lanUrl = "",
+  loggedIn,
+  forceMode,
+  effectiveIsLan,
+  probeOutcome,
+}: TargetDecisionInput): string {
+  if (!loggedIn || !lanUrl) return url;
+  if (forceMode === "auto") {
+    if (probeOutcome === "reachable") return lanUrl;
+    if (probeOutcome === "unreachable") return url;
+    return effectiveIsLan ? lanUrl : url;
+  }
+  return effectiveIsLan ? lanUrl : url;
 }

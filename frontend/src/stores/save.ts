@@ -110,7 +110,11 @@ export const useSaveStore = defineStore("save", () => {
         cacheStore.saveToCache(body);
         const compressed = pako.gzip(json);
 
-        const getSaveTimeout = () => 60000;
+        const getSaveTimeout = () => {
+          if (configStore.effectiveIsLan) return 15000;
+          if (configStore.forceNetworkMode === "latency") return 120000;
+          return 60000;
+        };
 
         const MAX_SAVE_RETRIES = 3;
         const SAVE_TIMEOUT_MS = getSaveTimeout();

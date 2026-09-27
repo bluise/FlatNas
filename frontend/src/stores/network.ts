@@ -35,10 +35,15 @@ export const useNetworkStore = defineStore("network", () => {
     return headers;
   };
 
-  // 网络判定已移除，心跳固定用默认档（不再有「延迟判定」这种强制档）
-  const getHeartbeatInterval = () => NETWORK_HEARTBEAT_INTERVAL;
-  const getHeartbeatTimeout = () => NETWORK_HEARTBEAT_TIMEOUT;
-  const getHeartbeatCheckInterval = () => NETWORK_HEARTBEAT_CHECK_INTERVAL;
+  const getHeartbeatInterval = () =>
+    configStore.forceNetworkMode === "latency"
+      ? NETWORK_HEARTBEAT_INTERVAL_LATENCY : NETWORK_HEARTBEAT_INTERVAL;
+  const getHeartbeatTimeout = () =>
+    configStore.forceNetworkMode === "latency"
+      ? NETWORK_HEARTBEAT_TIMEOUT_LATENCY : NETWORK_HEARTBEAT_TIMEOUT;
+  const getHeartbeatCheckInterval = () =>
+    configStore.forceNetworkMode === "latency"
+      ? NETWORK_HEARTBEAT_CHECK_INTERVAL_LATENCY : NETWORK_HEARTBEAT_CHECK_INTERVAL;
 
   const emitNetworkHeartbeat = (wsSend: (msg: Record<string, unknown>) => void) => {
     const t = auth.token || localStorage.getItem("flat-nas-token");

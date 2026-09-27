@@ -57,6 +57,13 @@
       "pcWallpaper": "PC壁紙",
       "mobileWallpaper": "モバイル壁紙"
     },
+    "network": {
+      "internalDomains": "内部ドメイン",
+      "networkRules": "ネットワークルール",
+      "forceMode": "ネットワークモード強制",
+      "latencyThreshold": "遅延閾値",
+      "presets": "プリセット"
+    },
     "daylight": {
       "title": "日中/夜間モード",
       "enable": "自動切替を有効化",

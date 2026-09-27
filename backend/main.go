@@ -98,6 +98,7 @@ func trimBasePath(basePath, reqPath string) string {
 	return reqPath
 }
 
+
 func main() {
 	fmt.Println("Backend process started")
 	gin.SetMode(gin.ReleaseMode)
