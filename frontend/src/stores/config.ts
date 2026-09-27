@@ -142,15 +142,6 @@ export const useConfigStore = defineStore("config", () => {
     customJsDisclaimerAgreed: false,
     mouseHoverEffect: "scale",
     autoUltrawide: false,
-    networkRules: "",
-    networkPresets: {
-      tailscale: false,
-      zerotier: false,
-      frp: false,
-      cloudflareTunnel: false,
-      ngrok: false,
-    },
-    latencyThresholdMs: 200,
   });
 
   const systemConfig = ref<SystemConfig>({

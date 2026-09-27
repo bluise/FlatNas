@@ -444,6 +444,12 @@ watch(showGroupSettingsModal, (val) => {
 // 点书签一律「内网优先」，同时给一条明确的退路 ——
 // 浏览器不允许 HTTPS 页面探测 http 内网地址，所以「不通自动走外网」在网页里做不到，
 // 这里改成：先开内网，页面顶部同时挂一条「打不开就切外网」的提示。
+const sidebarCollapsed = ref(true);
+const isSidebarEnabled = computed(() => {
+  const w = store.widgets.find((w) => w.type === "sidebar" && w.enable);
+  return checkVisible(w) && !(isMobile.value && w?.hideOnMobile);
+});
+
 // IP/归属地缓存的 key（按访问域名区分，与网络判定无关）
 const networkScope = typeof window !== "undefined" ? window.location.hostname : "default";
 const fallbackOffer = ref<{ title: string; url: string } | null>(null);
@@ -2541,9 +2547,7 @@ const fetchIp = async (force = false) => {
         const { timestamp, data } = JSON.parse(cached);
         if (Date.now() - timestamp < CACHE_DURATION) {
           ipInfo.value = data;
-          lastKnownClientIp.value = data?.clientIp || "";
-          store.clientPublicIp = lastKnownClientIp.value;
-          lastKnownClientIpSource.value = data?.clientIpSource || "";
+          store.clientPublicIp = data?.clientIp || "";
           store.ipFetchStatus = "success";
           return;
         }
@@ -2593,9 +2597,7 @@ const fetchIp = async (force = false) => {
       ipInfo.value.location = data.location || "未知位置";
       ipInfo.value.clientIp = data.clientIp || "";
       ipInfo.value.clientIpSource = data.clientIpSource || "";
-      lastKnownClientIp.value = ipInfo.value.clientIp;
-      store.clientPublicIp = lastKnownClientIp.value;
-      lastKnownClientIpSource.value = ipInfo.value.clientIpSource;
+      store.clientPublicIp = ipInfo.value.clientIp;
       store.ipFetchStatus = "success";
     } else {
       ipInfo.value.wanIp = data.ip || "";
