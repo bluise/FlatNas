@@ -5,9 +5,9 @@
 [![Docker Image](https://img.shields.io/badge/Docker-bluise1%2Fflatnas-2496ED?style=flat&logo=docker&logoColor=white)](https://hub.docker.com/r/bluise1/flatnas)
 
 > **关于本仓库**
-> 这是 [Garry-QD/FlatNas](https://github.com/Garry-QD/FlatNas)（AGPL-3.0）的个人构建版本，版本号 `1.6.1`，
+> 这是 [Garry-QD/FlatNas](https://github.com/Garry-QD/FlatNas)（AGPL-3.0）的个人构建版本，版本号 `1.6.2`，
 > 额外包含**待办事项与备忘录的数据一致性修复**（丢内容、"已删除的又冒出来" 等问题），详见 [修复说明](#本版修复内容)。
-> 预构建镜像：`bluise1/flatnas:latest` / `bluise1/flatnas:1.6.1`（支持 amd64 / arm64 / armv7）。
+> 预构建镜像：`bluise1/flatnas:latest` / `bluise1/flatnas:1.6.2`（支持 amd64 / arm64 / armv7）。
 
 FlatNas 是一个轻量级、高度可定制的个人导航页与仪表盘系统。它基于 Vue 3 与 Go(Gin) 构建，旨在为 NAS 用户、极客和开发者提供一个优雅的浏览器起始页。
 交流QQ群:613835409
@@ -332,7 +332,7 @@ export default {
 
 ## 🔧 本版修复内容
 
-相对上游 `1.2.6`，本构建（`1.6.1`）修复了待办与备忘录「丢内容、已删除的又冒出来」等一系列数据一致性问题：
+相对上游 `1.2.6`，本构建（`1.6.2`）修复了待办与备忘录「丢内容、已删除的又冒出来」等一系列数据一致性问题：
 
 **待办事项**
 
@@ -357,6 +357,14 @@ export default {
 - WebSocket 广播乱序时旧消息覆盖新状态 → 增加单调递增序号，客户端丢弃迟到消息
 - `GET /api/widgets/:id` 缺少鉴权，多用户下会读到 admin 的数据 → 已加鉴权
 - 重置数据后旧备忘会被重新填回 → 已一并清理
+
+**内外网地址自动切换（公网 VPS / HTTPS 反代场景）**
+
+- 原先只用「客户端与服务器是否同网段」判定内网，FlatNas 架在公网 VPS 上时永远判不出来 → 改为按可达性判定
+- HTTPS 页面探测 `http://` 内网地址会被浏览器按 Mixed Content 拦截 → 识别该情形并降级，不再误判
+- 新增「家庭网络出口 IP」判定：服务端比对客户端出口 IP，命中即用内网地址；HTTPS 部署同样适用
+- `whitelistLatencyMode` 未透传到判定逻辑、`forceNetworkMode: "latency"` 被吃掉 → 已修复，两个强制档恢复作用
+- 网络判定原因现在可直接在界面上看到（状态胶囊悬停提示）
 
 ## 📜 开源协议
 
