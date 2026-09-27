@@ -37,11 +37,6 @@ describe("getNetworkConfig", () => {
     expect(getNetworkConfig({}, "bogus" as unknown as "auto").forceNetworkMode).toBe("auto");
   });
 
-  it("把白名单延迟开关带出来（此前各调用点都漏传）", () => {
-    expect(getNetworkConfig({ whitelistLatencyMode: true }).whitelistLatencyMode).toBe(true);
-    expect(getNetworkConfig({}).whitelistLatencyMode).toBe(false);
-  });
-
   it("延迟阈值夹在 10~30000ms", () => {
     expect(getNetworkConfig({ latencyThresholdMs: 5 }).latencyThresholdMs).toBe(10);
     expect(getNetworkConfig({ latencyThresholdMs: 99999 }).latencyThresholdMs).toBe(30000);
@@ -102,26 +97,11 @@ describe("computeEffectiveNetworkMode", () => {
     expect(high.reason).toBe("force_latency_wan");
   });
 
-  it("白名单 + 延迟检测：延迟高就不算内网（修复前该开关传不进来，会一直算内网）", () => {
-    const cfg = { internalDomains: "example.com", whitelistLatencyMode: true, latencyThresholdMs: 50 };
+  it("白名单已移除：即便旧配置里还留着域名，也不再影响判定", () => {
+    const legacy = { internalDomains: "example.com", whitelistLatencyMode: true } as never;
     expect(
-      computeEffectiveNetworkMode(vps.hostname, vps.clientIp, vps.clientIpSource, 20, cfg).reason,
-    ).toBe("whitelist_latency_ok");
-    expect(
-      computeEffectiveNetworkMode(vps.hostname, vps.clientIp, vps.clientIpSource, 200, cfg).reason,
-    ).toBe("whitelist_latency_high");
-    expect(
-      computeEffectiveNetworkMode(vps.hostname, vps.clientIp, vps.clientIpSource, 200, cfg).isLan,
-    ).toBe(false);
-  });
-
-  it("白名单但未启用延迟检测：命中即算内网", () => {
-    const r = computeEffectiveNetworkMode(vps.hostname, vps.clientIp, vps.clientIpSource, 200, {
-      internalDomains: "example.com",
-      whitelistLatencyMode: false,
-    });
-    expect(r.isLan).toBe(true);
-    expect(r.reason).toBe("whitelist_matched");
+      computeEffectiveNetworkMode(vps.hostname, vps.clientIp, vps.clientIpSource, 20, legacy).reason,
+    ).toBe("default_wan");
   });
 
   it("内网部署场景（用私网地址访问）仍然照常命中", () => {

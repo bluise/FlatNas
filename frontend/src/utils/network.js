@@ -200,28 +200,14 @@ export const isHomeClientIp = (clientIp, homePublicIps = "") => {
   return false;
 };
 
-const isDomainInWhitelist = (hostname, whitelistStr) => {
-  if (!hostname || !whitelistStr) return false;
-  const lines = whitelistStr.split("\n").map(l => l.trim().toLowerCase()).filter(Boolean);
-  for (const line of lines) {
-    const domain = line.replace(/^\*\./, "").replace(/^https?:\/\//, "");
-    if (hostname === domain || hostname.endsWith(`.${domain}`)) {
-      return true;
-    }
-  }
-  return false;
-};
-
 export const getNetworkConfig = (appConfig = {}, localForceNetworkMode) => {
-  const internalDomains = typeof appConfig.internalDomains === "string" ? appConfig.internalDomains : "";
-  const whitelistLatencyMode = appConfig.whitelistLatencyMode === true;
   const homePublicIps = typeof appConfig.homePublicIps === "string" ? appConfig.homePublicIps : "";
   const mode = typeof localForceNetworkMode === "string" ? localForceNetworkMode : "";
   const forceNetworkMode = ["auto", "lan", "wan", "latency"].includes(mode) ? mode : "auto";
   const raw = appConfig.latencyThresholdMs;
   const base = typeof raw === "number" && Number.isFinite(raw) ? Math.trunc(raw) : 50;
   const latencyThresholdMs = Math.min(30000, Math.max(10, base));
-  return { internalDomains, whitelistLatencyMode, homePublicIps, forceNetworkMode, latencyThresholdMs };
+  return { homePublicIps, forceNetworkMode, latencyThresholdMs };
 };
 
 export const computeEffectiveNetworkMode = (
@@ -230,8 +216,6 @@ export const computeEffectiveNetworkMode = (
   clientIpSource,
   measuredLatencyMs,
   {
-    internalDomains = "",
-    whitelistLatencyMode = false,
     forceNetworkMode = "auto",
     latencyThresholdMs = 50,
     // 家庭网络公网出口 IP（每行一个，支持前缀）；命中即认为「在家」
@@ -246,7 +230,6 @@ export const computeEffectiveNetworkMode = (
   const canTrustClientIp = clientIpSource === "header";
   const clientIsLan = canTrustClientIp && !!clientIp && isInternalNetwork(clientIp, "", "");
   const latencyBasedLan = Number.isFinite(measuredLatencyMs) && measuredLatencyMs > 0 && measuredLatencyMs <= latencyThresholdMs;
-  const isInWhitelist = isDomainInWhitelist(hostname, internalDomains);
 
   // 强制模式优先级最高
   if (forceNetworkMode === "lan") return { isLan: true, reason: "force_lan", measuredLatencyMs };
@@ -271,15 +254,6 @@ export const computeEffectiveNetworkMode = (
   // 域名本身是内网地址
   if (hostnameIntrinsicLan) return { isLan: true, reason: "hostname_intrinsic", measuredLatencyMs };
 
-  // 白名单域名：启用延迟判定时根据延迟判定，未启用则直接判定为内网
-  if (isInWhitelist) {
-    if (whitelistLatencyMode) {
-      if (latencyBasedLan) return { isLan: true, reason: "whitelist_latency_ok", measuredLatencyMs };
-      return { isLan: false, reason: "whitelist_latency_high", measuredLatencyMs };
-    }
-    return { isLan: true, reason: "whitelist_matched", measuredLatencyMs };
-  }
-
   // 客户端IP是内网（只有 FlatNas 与你在同一内网时才可能成立）
   if (canTrustClientIp && clientIsLan) return { isLan: true, reason: "client_ip_header", measuredLatencyMs };
 
@@ -296,9 +270,6 @@ export const NETWORK_REASON_TEXT = {
   lan_probe_reachable: "浏览器实测内网地址可达",
   home_ip_match: "客户端出口 IP 属于家庭网络",
   hostname_intrinsic: "访问地址本身是内网地址",
-  whitelist_latency_ok: "命中白名单且延迟低",
-  whitelist_latency_high: "命中白名单但延迟高",
-  whitelist_matched: "命中白名单（未启用延迟判定）",
   client_ip_header: "客户端 IP 属于内网",
   default_wan: "默认判定为外网",
 };

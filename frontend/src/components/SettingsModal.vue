@@ -15,7 +15,6 @@ import RssSettings from "./RssSettings.vue";
 import SearchSettings from "./SearchSettings.vue";
 import ScriptManager from "./ScriptManager.vue";
 import OverlayMotion from "@/components/base/OverlayMotion.vue";
-import { DEFAULT_NETWORK_RULES, NETWORK_PRESET_RULES } from "@/utils/network";
 import { createDefaultWidgetList } from "@/utils/widgetUtils";
 import { toApiUrl } from "@/utils/runtimeUrls";
 import daoliyuLogo from "@/assets/daoliyu.svg";
@@ -87,11 +86,10 @@ const latencyThresholdValidation = computed(() => {
   if (n < 20 || n > 30000) return { ok: false, value: n, error: t('settings.validation.latencyRange') };
   return { ok: true, value: n, error: "" };
 });
-const whitelistLatencyEnabled = computed(() => {
-  return store.appConfig.whitelistLatencyMode === true;
-});
-const toggleWhitelistLatency = () => {
-  store.appConfig.whitelistLatencyMode = !store.appConfig.whitelistLatencyMode;
+/** 「延迟判定」强制档是否开启（阈值输入框的显示开关） */
+const latencyForceModeEnabled = computed(() => store.forceNetworkMode === "latency");
+const toggleLatencyForceMode = () => {
+  store.forceNetworkMode = store.forceNetworkMode === "latency" ? "auto" : "latency";
   store.markDirty();
 };
 /** 把当前客户端出口 IP 追加进「家庭网络 IP」列表（在家时点一下即可） */
@@ -164,75 +162,6 @@ const resetLatencyThreshold = async () => {
     latencyThresholdAppliedToast.value = "";
     latencyThresholdToastTimer = null;
   }, 1200);
-};
-
-const mergeLegacyInternalDomainsToRules = () => {
-  const legacy = String(store.appConfig.internalDomains || "")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const existing = String(store.appConfig.networkRules || "")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  if (legacy.length === 0) return;
-
-  const mapped = legacy.map((line) => {
-    if (line.includes(":")) return line;
-    if (/^\d{1,3}(\.\d{1,3}){0,3}\.?$/.test(line)) return `ip:${line}`;
-    return `domain_suffix:${line}`;
-  });
-
-  const merged = Array.from(new Set([...existing, ...mapped]));
-  store.appConfig.networkRules = merged.join("\n");
-};
-
-const applyDefaultNetworkRules = async () => {
-  mergeLegacyInternalDomainsToRules();
-  const existing = String(store.appConfig.networkRules || "").trim();
-  store.appConfig.networkRules = existing
-    ? `${existing}\n${DEFAULT_NETWORK_RULES}`
-    : DEFAULT_NETWORK_RULES;
-  store.markDirty();
-};
-
-const resetNetworkRules = async () => {
-  store.appConfig.networkRules = DEFAULT_NETWORK_RULES;
-  store.markDirty();
-};
-
-const toggleWhitelistLatencyMode = async () => {
-  store.forceNetworkMode = store.forceNetworkMode === "latency" ? "auto" : "latency";
-};
-
-const ensureNetworkPresets = () => {
-  if (!store.appConfig.networkPresets) {
-    store.appConfig.networkPresets = {
-      tailscale: false,
-      zerotier: false,
-      frp: false,
-      cloudflareTunnel: false,
-      ngrok: false,
-    };
-  }
-};
-
-const presetMeta: Record<string, { label: string; desc: string }> = {
-  tailscale: { label: "Tailscale", desc: "自动识别 .ts.net 与 100.64.x.x" },
-  zerotier: { label: "ZeroTier", desc: "自动识别 .zerotier.net" },
-  frp: { label: "FRP", desc: "启用后可叠加你的自定义 FRP 域名规则" },
-  cloudflareTunnel: { label: "Cloudflare Tunnel", desc: "识别 trycloudflare 域名" },
-  ngrok: { label: "ngrok", desc: "识别 ngrok 域名" },
-};
-
-const presetKeys = Object.keys(NETWORK_PRESET_RULES);
-
-const toggleNetworkPreset = async (key: string) => {
-  ensureNetworkPresets();
-  const current = !!store.appConfig.networkPresets?.[key as keyof NonNullable<typeof store.appConfig.networkPresets>];
-  store.appConfig.networkPresets![key as keyof NonNullable<typeof store.appConfig.networkPresets>] = !current;
-  store.markDirty();
 };
 
 const showWallpaperLibrary = ref(false);
@@ -3682,19 +3611,8 @@ watch(activeTab, (val) => {
                   >注</span
                 >
                 <p class="text-xs text-gray-600 leading-relaxed">
-                  {{ $t('settings.extraSections.domainWhitelistHint') }}
+                  {{ $t('settings.extraSections.networkDetectionHint') }}
                 </p>
-              </div>
-
-              <div class="space-y-2">
-                <label class="block text-sm font-medium text-gray-700">{{ $t('settings.extraSections.domainWhitelist') }}</label>
-                <textarea
-                  v-model="store.appConfig.internalDomains"
-                  @change="store.markDirty()"
-                  rows="5"
-                  class="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs focus:border-gray-900 outline-none font-mono"
-                  :placeholder="$t('settings.extraSections.placeholderDomainWhitelist')"
-                ></textarea>
               </div>
             </div>
 
@@ -3746,26 +3664,27 @@ watch(activeTab, (val) => {
               </div>
             </div>
 
+            <!-- 延迟判定阈值：仅「延迟判定」强制档使用 -->
             <div class="bg-gray-50 border border-gray-100 rounded-xl p-4">
-              <h5 class="text-sm font-medium text-gray-700 mb-3">{{ $t('settings.extraSections.whitelistLatencyMode') }}</h5>
+              <h5 class="text-sm font-medium text-gray-700 mb-3">{{ $t('settings.extraSections.latencyThresholdTitle') }}</h5>
               <div class="flex items-center gap-3 mb-3">
                 <button
                   type="button"
-                  @click="toggleWhitelistLatency"
+                  @click="toggleLatencyForceMode"
                   class="px-3 py-1.5 rounded-lg text-xs font-bold transition-colors border whitespace-nowrap"
                   :class="
-                    whitelistLatencyEnabled
+                    latencyForceModeEnabled
                       ? 'bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100'
                       : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
                   "
                 >
-                  {{ whitelistLatencyEnabled ? $t('settings.extraSections.whitelistLatencyEnabled') : $t('settings.extraSections.enableWhitelistLatency') }}
+                  {{ latencyForceModeEnabled ? $t('settings.extraSections.latencyForceEnabled') : $t('settings.extraSections.enableLatencyForce') }}
                 </button>
                 <span class="text-[11px] text-gray-500">
-                  {{ whitelistLatencyEnabled ? $t('settings.extraSections.whitelistLatencyDesc') : $t('settings.extraSections.whitelistLatencyDisabledDesc') }}
+                  {{ latencyForceModeEnabled ? $t('settings.extraSections.latencyForceDesc') : $t('settings.extraSections.latencyForceDisabledDesc') }}
                 </span>
               </div>
-              <div v-if="whitelistLatencyEnabled" class="flex items-center gap-2">
+              <div v-if="latencyForceModeEnabled" class="flex items-center gap-2">
                 <input
                   :value="latencyThresholdDraft"
                   inputmode="numeric"

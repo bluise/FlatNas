@@ -464,22 +464,17 @@ const lastKnownClientIpSource = ref("");
 /**
  * 统一构造判定参数。
  *
- * 这里之前每个调用点都各自写一份、且全都漏传 whitelistLatencyMode，
- * 导致设置里的「白名单 + 延迟检测」开关完全无效（命中白名单就直接算内网）。
- * 现在集中一处，并带上浏览器探测结论。
+ * 判定依据（按优先级）：强制档 → 浏览器内网可达性实测 → 家庭网络出口 IP →
+ * 访问地址本身是内网 → 客户端 IP 是内网 → 默认外网。
+ *
+ * 这里集中构造，避免各调用点各写一份、漏传字段（历史上就漏过开关，导致设置项形同虚设）。
  */
 const networkDecisionOptions = (cfg: {
-  internalDomains: string;
-  networkRules: string;
   forceNetworkMode: "auto" | "lan" | "wan" | "latency";
-  whitelistLatencyMode: boolean;
   homePublicIps: string;
   latencyThresholdMs: number;
 }) => ({
-  internalDomains: cfg.internalDomains,
-  networkRules: cfg.networkRules,
   forceNetworkMode: cfg.forceNetworkMode,
-  whitelistLatencyMode: cfg.whitelistLatencyMode,
   homePublicIps: cfg.homePublicIps,
   latencyThresholdMs: cfg.latencyThresholdMs,
   lanProbeOutcome: lanProbeOutcome.value,

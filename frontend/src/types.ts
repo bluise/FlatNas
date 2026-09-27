@@ -109,7 +109,6 @@ export interface AppConfig {
   daylightModeEnabled?: boolean;
   daylightMask?: number;
   weatherEffectEnabled?: boolean;
-  internalDomains?: string;
   networkRules?: string;
   networkPresets?: {
     tailscale?: boolean;
@@ -120,7 +119,6 @@ export interface AppConfig {
   };
   forceNetworkMode?: "auto" | "lan" | "wan" | "latency";
   latencyThresholdMs?: number;
-  whitelistLatencyMode?: boolean;
   /** 家庭网络的公网出口 IP（每行一个，支持前缀），命中则判定为「在家」并使用内网地址 */
   homePublicIps?: string;
   customTitle: string;

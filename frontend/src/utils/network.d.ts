@@ -21,17 +21,10 @@ export function isInternalNetwork(url: unknown, internalDomains?: string, networ
 export function isHomeClientIp(clientIp: string, homePublicIps?: string): boolean;
 
 export function getNetworkConfig(appConfig?: {
-  internalDomains?: string;
-  networkRules?: string;
-  networkPresets?: Record<string, boolean>;
-  whitelistLatencyMode?: boolean;
   homePublicIps?: string;
   latencyThresholdMs?: number;
 }, localForceNetworkMode?: "auto" | "lan" | "wan" | "latency"): {
-  internalDomains: string;
-  networkRules: string;
   forceNetworkMode: "auto" | "lan" | "wan" | "latency";
-  whitelistLatencyMode: boolean;
   homePublicIps: string;
   latencyThresholdMs: number;
 };
@@ -47,10 +40,7 @@ export function computeEffectiveNetworkMode(
   clientIpSource: string,
   measuredLatencyMs: number,
   config?: {
-    internalDomains?: string;
-    networkRules?: string;
     forceNetworkMode?: "auto" | "lan" | "wan" | "latency";
-    whitelistLatencyMode?: boolean;
     /** 家庭网络公网出口 IP（每行一个，支持前缀），命中即认为「在家」 */
     homePublicIps?: string;
     latencyThresholdMs?: number;
