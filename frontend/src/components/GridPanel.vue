@@ -21,7 +21,8 @@ import { useIconPreloader } from "../composables/useIconPreloader";
 import { generateLayout, type GridLayoutItem } from "../utils/gridLayout";
 import type { NavItem, WidgetConfig, NavGroup } from "@/types";
 import OverlayMotion from "@/components/base/OverlayMotion.vue";
-import { isInternalNetwork, getNetworkConfig, computeEffectiveNetworkMode } from "@/utils/network";
+import { isInternalNetwork, getNetworkConfig, computeEffectiveNetworkMode, NETWORK_REASON_TEXT } from "@/utils/network";
+import { peekLanProbe, probeAnyReachable, probeLanUrl, type LanProbeOutcome } from "@/utils/lanProbe";
 import DOMPurify from "dompurify";
 const CHUNK_RELOAD_KEY = "flatnas:chunk-reload-at";
 const loadAsync = <T extends Component>(loader: AsyncComponentLoader<T>) =>
@@ -443,6 +444,10 @@ watch(showGroupSettingsModal, (val) => {
 });
 const isLanMode = ref(false);
 const latency = ref(0);
+// 浏览器侧「内网地址是否可达」的探测结论，作为公网 VPS 部署下的关键判据
+const lanProbeOutcome = ref<LanProbeOutcome>("skipped");
+// 本次判定采用的原因码，供界面展示（原实现算完就丢掉了）
+const networkReason = ref("");
 const isChecking = ref(false);
 const networkScope = typeof window !== "undefined" ? window.location.hostname : "default";
 const networkConfig = computed(() => getNetworkConfig(store.appConfig, store.forceNetworkMode));
@@ -456,22 +461,55 @@ const latencyThresholdMs = computed(() => networkConfig.value.latencyThresholdMs
 const lastKnownClientIp = ref("");
 const lastKnownClientIpSource = ref("");
 
-const effectiveIsLan = computed(() => {
-  if (!store.isLanModeInited) return false;
-  const cfg = networkConfig.value;
-  const result = computeEffectiveNetworkMode(
+/**
+ * 统一构造判定参数。
+ *
+ * 这里之前每个调用点都各自写一份、且全都漏传 whitelistLatencyMode，
+ * 导致设置里的「白名单 + 延迟检测」开关完全无效（命中白名单就直接算内网）。
+ * 现在集中一处，并带上浏览器探测结论。
+ */
+const networkDecisionOptions = (cfg: {
+  internalDomains: string;
+  networkRules: string;
+  forceNetworkMode: "auto" | "lan" | "wan" | "latency";
+  whitelistLatencyMode: boolean;
+  latencyThresholdMs: number;
+}) => ({
+  internalDomains: cfg.internalDomains,
+  networkRules: cfg.networkRules,
+  forceNetworkMode: cfg.forceNetworkMode,
+  whitelistLatencyMode: cfg.whitelistLatencyMode,
+  latencyThresholdMs: cfg.latencyThresholdMs,
+  lanProbeOutcome: lanProbeOutcome.value,
+});
+
+const networkDecision = computed(() => {
+  if (!store.isLanModeInited) {
+    return { isLan: false, reason: "uninited", measuredLatencyMs: latency.value };
+  }
+  return computeEffectiveNetworkMode(
     window.location.hostname,
     lastKnownClientIp.value,
     lastKnownClientIpSource.value,
     latency.value,
-    {
-      internalDomains: cfg.internalDomains,
-      networkRules: cfg.networkRules,
-      forceNetworkMode: cfg.forceNetworkMode,
-      latencyThresholdMs: cfg.latencyThresholdMs,
-    },
+    { ...networkDecisionOptions(networkConfig.value) },
   );
-  return result.isLan;
+});
+
+const effectiveIsLan = computed(() => networkDecision.value.isLan);
+
+/** 判定原因文案（含浏览器内网探测结论），鼠标悬停在网络状态上可见 */
+const networkDecisionText = computed(() => {
+  const base = NETWORK_REASON_TEXT[networkDecision.value.reason] || networkDecision.value.reason;
+  const probe =
+    lanProbeOutcome.value === "reachable"
+      ? "内网地址可达"
+      : lanProbeOutcome.value === "unreachable"
+        ? "内网地址不可达"
+        : lanProbeOutcome.value === "blocked"
+          ? "探测被浏览器拦截（HTTPS 页面探测 HTTP 地址）"
+          : "";
+  return probe ? `${base} · ${probe}` : base;
 });
 
 watch(
@@ -1198,6 +1236,25 @@ const toggleDevTools = () => {
   }
 };
 
+// ---- 内网地址探测：页面加载后预热，点击书签时通常直接命中缓存 ----
+const LAN_PROBE_REFRESH_MS = 60000;
+const LAN_PROBE_MAX_TARGETS = 8;
+let lanProbeTimer: number | null = null;
+
+const collectLanUrls = () =>
+  Array.from(
+    new Set(
+      (store.groups || [])
+        .flatMap((group) => (group.items || []).map((item) => item?.lanUrl))
+        .filter((url): url is string => typeof url === "string" && url.trim().length > 0),
+    ),
+  ).slice(0, LAN_PROBE_MAX_TARGETS);
+
+const refreshLanProbe = async () => {
+  const urls = collectLanUrls();
+  lanProbeOutcome.value = urls.length ? await probeAnyReachable(urls, { concurrency: 4 }) : "skipped";
+};
+
 const handleNetworkClick = async () => {
   checkLatency();
 
@@ -1263,10 +1320,7 @@ const checkLatency = async () => {
         lastKnownClientIpSource.value,
         latency.value,
         {
-          internalDomains: cfg.internalDomains,
-          networkRules: cfg.networkRules,
-          forceNetworkMode: cfg.forceNetworkMode,
-          latencyThresholdMs: cfg.latencyThresholdMs,
+          ...networkDecisionOptions(cfg),
         },
       );
       isLanMode.value = result.isLan;
@@ -1288,10 +1342,7 @@ watch(forceMode, (val) => {
       lastKnownClientIpSource.value,
       latency.value,
       {
-        internalDomains: cfg.internalDomains,
-        networkRules: cfg.networkRules,
-        forceNetworkMode: cfg.forceNetworkMode,
-        latencyThresholdMs: cfg.latencyThresholdMs,
+        ...networkDecisionOptions(cfg),
       },
     );
     isLanMode.value = result.isLan;
@@ -1308,10 +1359,7 @@ watch(latencyThresholdMs, () => {
       lastKnownClientIpSource.value,
       latency.value,
       {
-        internalDomains: cfg.internalDomains,
-        networkRules: cfg.networkRules,
-        forceNetworkMode: cfg.forceNetworkMode,
-        latencyThresholdMs: cfg.latencyThresholdMs,
+        ...networkDecisionOptions(cfg),
       },
     );
     isLanMode.value = result.isLan;
@@ -1326,14 +1374,16 @@ onMounted(() => {
     "",
     0,
     {
-      internalDomains: cfg.internalDomains,
-      networkRules: cfg.networkRules,
-      forceNetworkMode: cfg.forceNetworkMode,
-      latencyThresholdMs: cfg.latencyThresholdMs,
+      ...networkDecisionOptions(cfg),
     },
   );
   isLanMode.value = initialResult.isLan;
   setTimeout(() => checkLatency(), 2000);
+  // 预热内网探测：等首屏稳定后跑一次，之后每 60s 刷新（与探测结果缓存 TTL 对齐）
+  setTimeout(() => void refreshLanProbe(), 300);
+  lanProbeTimer = window.setInterval(() => {
+    if (document.visibilityState === "visible") void refreshLanProbe();
+  }, LAN_PROBE_REFRESH_MS);
   fetchIp(true);
   ipInterval = window.setInterval(() => fetchIp(), 3600000);
   const ensureSearchFocus = () => {
@@ -1599,7 +1649,7 @@ watch(
 //   openDeleteConfirm(id)
 // }
 let skipNextCardClickId: string | null = null;
-const handleCardClick = (item: NavItem) => {
+const handleCardClick = async (item: NavItem) => {
   if (skipNextCardClickId === item.id) {
     skipNextCardClickId = null;
     return;
@@ -1618,6 +1668,16 @@ const handleCardClick = (item: NavItem) => {
   // 直接使用它可以保证 UI 状态（是否显示内网标识）与实际跳转逻辑的一致性
   if (store.isLogged && effectiveIsLan.value && item.lanUrl) {
     targetUrl = item.lanUrl;
+  } else if (store.isLogged && typeof item.lanUrl === "string" && item.lanUrl && networkConfig.value.forceNetworkMode === "auto") {
+    // 全局判定为外网，但**这一个**书签的内网地址此时可能是通的
+    //（FlatNas 部署在公网 VPS 时的典型情况：服务端推断不出你在不在内网，只能由浏览器实测）。
+    // 页面加载后已经预热过缓存，这里通常直接命中、无需等待。
+    const lanUrl = item.lanUrl;
+    const cachedOutcome = peekLanProbe(lanUrl);
+    const outcome = cachedOutcome ?? (await probeLanUrl(lanUrl));
+    if (outcome === "reachable") {
+      targetUrl = lanUrl;
+    }
   }
 
   // 特殊情况：如果解析出的 targetUrl 为空（说明没有外网链接），
@@ -2089,6 +2149,10 @@ onUnmounted(() => {
   isMounted.value = false;
   store.unregisterDashboardPulse(fetchContainerStatuses);
   document.removeEventListener("visibilitychange", handleContainerVisibilityChange);
+  if (lanProbeTimer) {
+    window.clearInterval(lanProbeTimer);
+    lanProbeTimer = null;
+  }
 });
 
 // 监听 store.groups 变化，一旦出现容器组件，立即拉一次状态（之后由脉冲每 15s 驱动）
@@ -2674,10 +2738,7 @@ const fetchIp = async (force = false) => {
             lastKnownClientIpSource.value,
             latency.value,
             {
-              internalDomains: cfg.internalDomains,
-              networkRules: cfg.networkRules,
-              forceNetworkMode: cfg.forceNetworkMode,
-              latencyThresholdMs: cfg.latencyThresholdMs,
+              ...networkDecisionOptions(cfg),
             },
           );
           isLanMode.value = result.isLan;
@@ -2741,10 +2802,7 @@ const fetchIp = async (force = false) => {
         lastKnownClientIpSource.value,
         latency.value,
         {
-          internalDomains: cfg.internalDomains,
-          networkRules: cfg.networkRules,
-          forceNetworkMode: cfg.forceNetworkMode,
-          latencyThresholdMs: cfg.latencyThresholdMs,
+          ...networkDecisionOptions(cfg),
         },
       );
       isLanMode.value = result.isLan;
@@ -3093,6 +3151,7 @@ onUnmounted(() => {
               </button>
               <div
                 class="flex items-center gap-2 px-3 h-full rounded-full text-[10px] font-medium cursor-pointer hover:bg-gray-100 transition-all select-none"
+                :title="networkDecisionText"
                 @click="handleNetworkClick"
               >
                 <template v-if="isChecking"

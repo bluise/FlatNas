@@ -185,7 +185,7 @@ export const getNetworkConfig = (appConfig = {}, localForceNetworkMode) => {
   const internalDomains = typeof appConfig.internalDomains === "string" ? appConfig.internalDomains : "";
   const whitelistLatencyMode = appConfig.whitelistLatencyMode === true;
   const mode = typeof localForceNetworkMode === "string" ? localForceNetworkMode : "";
-  const forceNetworkMode = ["auto", "lan", "wan"].includes(mode) ? mode : "auto";
+  const forceNetworkMode = ["auto", "lan", "wan", "latency"].includes(mode) ? mode : "auto";
   const raw = appConfig.latencyThresholdMs;
   const base = typeof raw === "number" && Number.isFinite(raw) ? Math.trunc(raw) : 50;
   const latencyThresholdMs = Math.min(30000, Math.max(10, base));
@@ -197,7 +197,16 @@ export const computeEffectiveNetworkMode = (
   clientIp,
   clientIpSource,
   measuredLatencyMs,
-  { internalDomains = "", whitelistLatencyMode = false, forceNetworkMode = "auto", latencyThresholdMs = 50 } = {},
+  {
+    internalDomains = "",
+    whitelistLatencyMode = false,
+    forceNetworkMode = "auto",
+    latencyThresholdMs = 50,
+    // 浏览器侧「内网地址可达性」探测结论（见 utils/lanProbe.ts）。
+    // FlatNas 部署在公网 VPS 时，服务端看不到你的内网，只有浏览器能直接去试内网地址通不通，
+    // 因此这是那种部署下唯一可靠的判据。
+    lanProbeOutcome = "skipped",
+  } = {},
 ) => {
   const hostnameIntrinsicLan = isInternalNetwork(hostname, "", "");
   const canTrustClientIp = clientIpSource === "header";
@@ -208,11 +217,22 @@ export const computeEffectiveNetworkMode = (
   // 强制模式优先级最高
   if (forceNetworkMode === "lan") return { isLan: true, reason: "force_lan", measuredLatencyMs };
   if (forceNetworkMode === "wan") return { isLan: false, reason: "force_wan", measuredLatencyMs };
+  // 「延迟」档：只看延迟，不看域名/IP（否则这一档在界面上等于摆设）
+  if (forceNetworkMode === "latency") {
+    return {
+      isLan: latencyBasedLan,
+      reason: latencyBasedLan ? "force_latency_lan" : "force_latency_wan",
+      measuredLatencyMs,
+    };
+  }
+
+  // 浏览器实测内网地址可达：比任何推断都可靠
+  if (lanProbeOutcome === "reachable") return { isLan: true, reason: "lan_probe_reachable", measuredLatencyMs };
 
   // 域名本身是内网地址
   if (hostnameIntrinsicLan) return { isLan: true, reason: "hostname_intrinsic", measuredLatencyMs };
 
-  // 白名单域名：启用延迟判定时根据延迟判定，未启用则直接判定为外网
+  // 白名单域名：启用延迟判定时根据延迟判定，未启用则直接判定为内网
   if (isInWhitelist) {
     if (whitelistLatencyMode) {
       if (latencyBasedLan) return { isLan: true, reason: "whitelist_latency_ok", measuredLatencyMs };
@@ -221,9 +241,24 @@ export const computeEffectiveNetworkMode = (
     return { isLan: true, reason: "whitelist_matched", measuredLatencyMs };
   }
 
-  // 客户端IP是内网
+  // 客户端IP是内网（只有 FlatNas 与你在同一内网时才可能成立）
   if (canTrustClientIp && clientIsLan) return { isLan: true, reason: "client_ip_header", measuredLatencyMs };
 
   // 默认外网
   return { isLan: false, reason: "default_wan", measuredLatencyMs };
+};
+
+/** reason 的可读文案，便于在设置页/调试时看清「为什么这么判」 */
+export const NETWORK_REASON_TEXT = {
+  force_lan: "手动强制为内网",
+  force_wan: "手动强制为外网",
+  force_latency_lan: "延迟低于阈值（延迟模式）",
+  force_latency_wan: "延迟高于阈值（延迟模式）",
+  lan_probe_reachable: "浏览器实测内网地址可达",
+  hostname_intrinsic: "访问地址本身是内网地址",
+  whitelist_latency_ok: "命中白名单且延迟低",
+  whitelist_latency_high: "命中白名单但延迟高",
+  whitelist_matched: "命中白名单（未启用延迟判定）",
+  client_ip_header: "客户端 IP 属于内网",
+  default_wan: "默认判定为外网",
 };
