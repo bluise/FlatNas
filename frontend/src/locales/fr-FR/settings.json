@@ -432,7 +432,7 @@
   "extraSections": {
     "advancedWidgetConfig": "Configuration avancée des composants",
     "networkDetectionSettings": "Paramètres de détection réseau",
-    "homeNetworkTitle": "Détection du réseau domestique",
+    "homeNetworkTitle": "Enregistrer manuellement l'IP de sortie du domicile (facultatif ; utilisez le battement si elle change)",
     "homeNetworkHint": "Saisissez l'IP publique de sortie de votre réseau domestique (une par ligne, préfixe comme 1.2.3. accepté). Chez vous, l'adresse LAN est utilisée directement ; la vérification est faite côté serveur et fonctionne donc aussi en HTTPS.",
     "homeNetworkIps": "IP publique du réseau domestique",
     "homeNetworkUseCurrent": "Utiliser le réseau actuel comme réseau domestique",
@@ -685,7 +685,23 @@
     "enableLatencyForce": "Activer le mode latence",
     "latencyForceEnabled": "Activé",
     "latencyForceDesc": "Décide LAN/WAN uniquement par la latence, sans domaine ni IP",
-    "latencyForceDisabledDesc": "Désactivé ; une fois activé, seule la latence compte"
+    "latencyForceDisabledDesc": "Désactivé ; une fois activé, seule la latence compte",
+    "homeBeaconTitle": "Battement réseau domestique (recommandé ; fonctionne en IP dynamique)",
+    "homeBeaconHint": "L'IP de sortie de votre domicile change en permanence (encore plus avec le CGNAT), donc une IP saisie à la main devient vite obsolète. Faites appeler l'URL ci-dessous toutes les quelques minutes par un appareil toujours allumé à la maison (NAS, routeur) : FlatNas enregistre l'IP source de cette requête comme IP de sortie du domicile et suit les changements automatiquement. L'appareil a seulement besoin d'un accès sortant : pas d'IP publique requise, et le double NAT ne gêne pas.",
+    "homeBeaconNeedLogin": "Connectez-vous pour voir l'URL du battement.",
+    "homeBeaconUrlLabel": "URL du battement (votre appareil à la maison l'appelle régulièrement)",
+    "homeBeaconCron": "Linux / NAS : */5 * * * * curl -fsS \"l'URL ci-dessus\" >/dev/null 2>&1",
+    "homeBeaconPrefixOn": "Correspondance /24 : activée",
+    "homeBeaconPrefixOff": "Correspondance /24 : désactivée",
+    "homeBeaconPrefixHint": "Si activée, toute IP publique du même /24 qu'un enregistrement compte aussi comme « à la maison » (en CGNAT, le téléphone et le NAS peuvent obtenir des IP différentes d'un même pool). Désactivée, une correspondance exacte est exigée.",
+    "homeBeaconRegenerate": "Régénérer le jeton",
+    "homeBeaconClear": "Effacer les enregistrements",
+    "homeBeaconLast": "Dernier battement : {ip} ({time})",
+    "homeBeaconNever": "Aucun battement reçu pour l'instant.",
+    "homeBeaconCurrentHome": "Verdict actuel : à la maison",
+    "homeBeaconCurrentAway": "Verdict actuel : à l'extérieur",
+    "copy": "Copier",
+    "copied": "Copié"
   },
   "networkIndicator": {
     "online": "En ligne",

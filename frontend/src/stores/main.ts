@@ -88,6 +88,13 @@ export const useMainStore = defineStore("main", () => {
       configStore.clientPublicIp = v;
     },
   });
+  /** 服务端判定：当前是否「在家」（出口 IP 命中家庭网络心跳） */
+  const homeNetworkMatch = computed({
+    get: () => configStore.homeNetworkMatch,
+    set: (v) => {
+      configStore.homeNetworkMatch = v;
+    },
+  });
   const ipFetchStatus = computed({
     get: () => configStore.ipFetchStatus,
     set: (v) => {
@@ -307,6 +314,7 @@ export const useMainStore = defineStore("main", () => {
     networkLatency,
     effectiveIsLan,
     clientPublicIp,
+    homeNetworkMatch,
     ipFetchStatus,
     weatherNetworkStatus,
     detectWeatherNetworkStatus,

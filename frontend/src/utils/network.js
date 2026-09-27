@@ -221,9 +221,13 @@ export const computeEffectiveNetworkMode = (
     // 家庭网络公网出口 IP（每行一个，支持前缀）；命中即认为「在家」
     homePublicIps = "",
     // 浏览器侧「内网地址可达性」探测结论（见 utils/lanProbe.ts）。
-    // FlatNas 部署在公网 VPS 时，服务端看不到你的内网，只有浏览器能直接去试内网地址通不通，
-    // 因此这是那种部署下唯一可靠的判据。
+    // FlatNas 部署在公网 VPS 时，服务端看不到你的内网，只有浏览器能直接去试内网地址通不通。
+    // 注意：页面是 HTTPS 而内网地址是 HTTP 时会被 Mixed Content 拦掉，探测拿不到结论。
     lanProbeOutcome = "skipped",
+    // 服务端判定的「客户端出口 IP 属于家庭网络」。
+    // 由 /api/ip 返回：家里 24h 设备（NAS/路由器）定时打心跳，服务端记下家里的出口 IP，
+    // 之后比对访问者出口 IP 即可。HTTPS 部署同样有效，且出口 IP 动态变化也能自动跟上。
+    homeNetworkMatch = false,
   } = {},
 ) => {
   const hostnameIntrinsicLan = isInternalNetwork(hostname, "", "");
@@ -246,7 +250,10 @@ export const computeEffectiveNetworkMode = (
   // 浏览器实测内网地址可达：比任何推断都可靠
   if (lanProbeOutcome === "reachable") return { isLan: true, reason: "lan_probe_reachable", measuredLatencyMs };
 
-  // 客户端出口 IP 命中「家庭网络 IP」→ 在家（服务端事实，HTTPS 场景下也可用）
+  // 服务端心跳判定「在家」：不依赖浏览器探测，HTTPS 部署下最可靠的一条
+  if (homeNetworkMatch) return { isLan: true, reason: "home_beacon_match", measuredLatencyMs };
+
+  // 客户端出口 IP 命中手动登记的「家庭网络 IP」→ 在家
   if (canTrustClientIp && homePublicIps && isHomeClientIp(clientIp, homePublicIps)) {
     return { isLan: true, reason: "home_ip_match", measuredLatencyMs };
   }
@@ -268,6 +275,7 @@ export const NETWORK_REASON_TEXT = {
   force_latency_lan: "延迟低于阈值（延迟模式）",
   force_latency_wan: "延迟高于阈值（延迟模式）",
   lan_probe_reachable: "浏览器实测内网地址可达",
+  home_beacon_match: "客户端出口 IP 属于家庭网络（心跳）",
   home_ip_match: "客户端出口 IP 属于家庭网络",
   hostname_intrinsic: "访问地址本身是内网地址",
   client_ip_header: "客户端 IP 属于内网",

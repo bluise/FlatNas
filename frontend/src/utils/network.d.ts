@@ -46,5 +46,7 @@ export function computeEffectiveNetworkMode(
     latencyThresholdMs?: number;
     /** 浏览器侧内网地址可达性探测结论（FlatNas 部署在公网 VPS 时的关键判据） */
     lanProbeOutcome?: LanProbeOutcome;
+    /** 服务端判定：客户端出口 IP 命中家庭网络心跳记录（HTTPS 部署下最可靠的判据） */
+    homeNetworkMatch?: boolean;
   },
 ): { isLan: boolean; reason: string; measuredLatencyMs: number };

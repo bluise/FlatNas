@@ -20,13 +20,15 @@ export const useConfigStore = defineStore("config", () => {
   const effectiveIsLan = ref(false);
   // 当前客户端的公网出口 IP（由 /api/ip 得到），设置页用它一键填入「家庭网络 IP」
   const clientPublicIp = ref("");
+  // 服务端判定：当前访问者的出口 IP 是否命中「家庭网络心跳」记录
+  const homeNetworkMatch = ref(false);
   const ipFetchStatus = ref<"success" | "error" | "loading">("loading");
   const weatherNetworkStatus = ref<"online" | "degraded" | "offline">("online");
   const isPageUnloading = ref(false);
   const serverSyncLockCount = ref(0);
 
   // Version / update checking
-  const currentVersion = "1.6.3";
+  const currentVersion = "1.6.4";
   const latestVersion = ref("");
   const dockerUpdateAvailable = ref(false);
   const updateCheckLastAt = useStorage<number>("flat-nas-update-check-last-at", 0);
@@ -255,6 +257,7 @@ export const useConfigStore = defineStore("config", () => {
     networkLatency,
     effectiveIsLan,
     clientPublicIp,
+    homeNetworkMatch,
     ipFetchStatus,
     weatherNetworkStatus,
     isPageUnloading,

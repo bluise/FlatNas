@@ -5,9 +5,9 @@
 [![Docker Image](https://img.shields.io/badge/Docker-bluise1%2Fflatnas-2496ED?style=flat&logo=docker&logoColor=white)](https://hub.docker.com/r/bluise1/flatnas)
 
 > **关于本仓库**
-> 这是 [Garry-QD/FlatNas](https://github.com/Garry-QD/FlatNas)（AGPL-3.0）的个人构建版本，版本号 `1.6.3`，
+> 这是 [Garry-QD/FlatNas](https://github.com/Garry-QD/FlatNas)（AGPL-3.0）的个人构建版本，版本号 `1.6.4`，
 > 额外包含**待办事项与备忘录的数据一致性修复**（丢内容、"已删除的又冒出来" 等问题），详见 [修复说明](#本版修复内容)。
-> 预构建镜像：`bluise1/flatnas:latest` / `bluise1/flatnas:1.6.3`（支持 amd64 / arm64 / armv7）。
+> 预构建镜像：`bluise1/flatnas:latest` / `bluise1/flatnas:1.6.4`（支持 amd64 / arm64 / armv7）。
 
 FlatNas 是一个轻量级、高度可定制的个人导航页与仪表盘系统。它基于 Vue 3 与 Go(Gin) 构建，旨在为 NAS 用户、极客和开发者提供一个优雅的浏览器起始页。
 交流QQ群:613835409
@@ -332,7 +332,7 @@ export default {
 
 ## 🔧 本版修复内容
 
-相对上游 `1.2.6`，本构建（`1.6.3`）修复了待办与备忘录「丢内容、已删除的又冒出来」等一系列数据一致性问题：
+相对上游 `1.2.6`，本构建（`1.6.4`）修复了待办与备忘录「丢内容、已删除的又冒出来」等一系列数据一致性问题：
 
 **待办事项**
 
@@ -368,6 +368,13 @@ export default {
 - **移除「域名白名单」与「白名单+延迟判定」**：它是被新机制完整覆盖、且更容易配错的「强制内网」，
   对公网 VPS 部署还有害（把公网域名填进去会导致在外面也走内网地址）。
   延迟阈值保留，改为挂在「延迟判定」强制档下；顺带清掉一批从未接线的死代码
+- **新增「家庭网络心跳」**：家宽出口 IP 会变（CGNAT 尤其频繁），手填很快失效。
+  让家里任意一台 24h 在线的设备（NAS / 路由器）定时请求一个带 token 的心跳地址，
+  服务端就把「这次请求的来源 IP」记成家庭出口 IP，IP 怎么变都自动跟上；
+  不需要公网 IP、不需要端口映射，双路由 / 二级路由也不影响。
+  匹配支持同 /24（CGNAT 下手机与 NAS 可能落在同一池子的不同 IP）
+- 「是否在家」改为服务端判定并用独立接口现问，不跟着 1 小时的 IP 缓存走
+  （否则同一台设备从家里走到外面会继续以为在家）
 
 ## 📜 开源协议
 

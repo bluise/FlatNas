@@ -432,7 +432,7 @@
   "extraSections": {
     "advancedWidgetConfig": "Erweiterte Komponentenkonfiguration",
     "networkDetectionSettings": "Netzwerkerkennungseinstellungen",
-    "homeNetworkTitle": "Heimnetz-Erkennung",
+    "homeNetworkTitle": "Heim-Egress-IP manuell eintragen (optional; bei wechselnder IP den Heartbeat unten nutzen)",
     "homeNetworkHint": "Trage die öffentliche Ausgangs-IP deines Heimnetzes ein (eine pro Zeile, Präfix wie 1.2.3. möglich). Zu Hause wird direkt die LAN-Adresse verwendet — die Prüfung erfolgt serverseitig und funktioniert daher auch über HTTPS.",
     "homeNetworkIps": "Öffentliche Heimnetz-IP",
     "homeNetworkUseCurrent": "Aktuelles Netzwerk als Heimnetz festlegen",
@@ -685,7 +685,23 @@
     "enableLatencyForce": "Latenzmodus aktivieren",
     "latencyForceEnabled": "Aktiviert",
     "latencyForceDesc": "LAN/WAN nur anhand der Antwortlatenz, ohne Domain und IP",
-    "latencyForceDisabledDesc": "Derzeit aus; wenn aktiv, zählt nur die Latenz"
+    "latencyForceDisabledDesc": "Derzeit aus; wenn aktiv, zählt nur die Latenz",
+    "homeBeaconTitle": "Heimnetz-Heartbeat (empfohlen; funktioniert mit dynamischen IPs)",
+    "homeBeaconHint": "Die Egress-IP deines Anschlusses ändert sich ständig (bei CGNAT besonders oft), eine manuell eingetragene IP veraltet schnell. Lass ein dauerhaft laufendes Gerät zu Hause (NAS, Router) die untenstehende URL alle paar Minuten aufrufen: FlatNas speichert die Quell-IP dieser Anfrage als Heim-Egress-IP und folgt den Änderungen automatisch. Das Gerät braucht nur ausgehenden Internetzugang – keine öffentliche IP, und Doppel-NAT ist kein Problem.",
+    "homeBeaconNeedLogin": "Melde dich an, um die Heartbeat-URL zu sehen.",
+    "homeBeaconUrlLabel": "Heartbeat-URL (dein Gerät zu Hause ruft sie regelmäßig auf)",
+    "homeBeaconCron": "Linux / NAS: */5 * * * * curl -fsS \"die URL oben\" >/dev/null 2>&1",
+    "homeBeaconPrefixOn": "/24-Abgleich: an",
+    "homeBeaconPrefixOff": "/24-Abgleich: aus",
+    "homeBeaconPrefixHint": "Wenn aktiv, gilt jede öffentliche IP im selben /24 wie ein Heartbeat-Datensatz ebenfalls als „zu Hause“ (bei CGNAT können Handy und NAS unterschiedliche IPs aus einem Pool erhalten). Deaktiviert ist ein exakter Treffer nötig.",
+    "homeBeaconRegenerate": "Token neu erzeugen",
+    "homeBeaconClear": "Datensätze löschen",
+    "homeBeaconLast": "Letzter Heartbeat: {ip} ({time})",
+    "homeBeaconNever": "Noch kein Heartbeat empfangen.",
+    "homeBeaconCurrentHome": "Aktuelles Urteil: zu Hause",
+    "homeBeaconCurrentAway": "Aktuelles Urteil: unterwegs",
+    "copy": "Kopieren",
+    "copied": "Kopiert"
   },
   "networkIndicator": {
     "online": "Online",

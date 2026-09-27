@@ -432,7 +432,7 @@
   "extraSections": {
     "advancedWidgetConfig": "進階元件設定",
     "networkDetectionSettings": "網路環境判定設定",
-    "homeNetworkTitle": "家庭網路識別",
+    "homeNetworkTitle": "手動登記家庭出口 IP（選用；IP 常變請用下方心跳）",
     "homeNetworkHint": "填寫你家的公網出口 IP（每行一個，支援前綴如 1.2.3.）。在家時直接使用內網位址 —— 這條判斷在伺服器端完成，所以 HTTPS 存取同樣有效，不受瀏覽器限制。",
     "homeNetworkIps": "家庭網路公網 IP",
     "homeNetworkUseCurrent": "把目前網路設為家庭網路",
@@ -685,7 +685,23 @@
     "enableLatencyForce": "啟用延遲判定",
     "latencyForceEnabled": "已啟用",
     "latencyForceDesc": "僅用回應延遲決定內外網，不看網域和 IP",
-    "latencyForceDisabledDesc": "目前未啟用；啟用後完全依延遲判定"
+    "latencyForceDisabledDesc": "目前未啟用；啟用後完全依延遲判定",
+    "homeBeaconTitle": "家庭網路心跳（推薦，動態 IP 也能用）",
+    "homeBeaconHint": "家用出口 IP 會變（尤其電信商 CGNAT），手動填寫很快就失效。讓家裡任一台 24 小時在線的裝置（NAS、路由器皆可）每隔幾分鐘請求下面這個位址，FlatNas 就會把「這次請求的來源 IP」記成家庭出口 IP —— IP 再怎麼變都會自動跟上。裝置只要能連外網即可，家裡不需要有公網 IP，也不受雙路由影響。",
+    "homeBeaconNeedLogin": "登入後才能查看心跳位址。",
+    "homeBeaconUrlLabel": "心跳位址（家中裝置定時請求它）",
+    "homeBeaconCron": "Linux / NAS：*/5 * * * * curl -fsS \"上面的位址\" >/dev/null 2>&1",
+    "homeBeaconPrefixOn": "同網段比對：開",
+    "homeBeaconPrefixOff": "同網段比對：關",
+    "homeBeaconPrefixHint": "開啟時，同一個 /24 段內的其他公網 IP 也算在家。關閉後只認完全相同的 IP。",
+    "homeBeaconRegenerate": "重新產生 token",
+    "homeBeaconClear": "清除記錄",
+    "homeBeaconLast": "最近一次心跳：{ip}（{time}）",
+    "homeBeaconNever": "尚未收到心跳。",
+    "homeBeaconCurrentHome": "目前判定：在家",
+    "homeBeaconCurrentAway": "目前判定：不在家",
+    "copy": "複製",
+    "copied": "已複製"
   },
   "networkIndicator": {
     "online": "線上",

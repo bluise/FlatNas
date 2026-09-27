@@ -432,7 +432,7 @@
   "extraSections": {
     "advancedWidgetConfig": "Advanced Component Config",
     "networkDetectionSettings": "Network Detection Settings",
-    "homeNetworkTitle": "Home Network Detection",
+    "homeNetworkTitle": "Manually register home egress IP (optional; use the heartbeat below if your IP changes)",
     "homeNetworkHint": "Enter your home public egress IP (one per line, prefix such as 1.2.3. is supported). When you are at home the LAN address is used directly — this check runs on the server, so it also works over HTTPS.",
     "homeNetworkIps": "Home public IP(s)",
     "homeNetworkUseCurrent": "Use current network as home",
@@ -685,7 +685,23 @@
     "enableLatencyForce": "Enable latency mode",
     "latencyForceEnabled": "Enabled",
     "latencyForceDesc": "Decide LAN/WAN purely by response latency, ignoring domain and IP",
-    "latencyForceDisabledDesc": "Currently off; when enabled, only latency is used"
+    "latencyForceDisabledDesc": "Currently off; when enabled, only latency is used",
+    "homeBeaconTitle": "Home network heartbeat (recommended; works with dynamic IPs)",
+    "homeBeaconHint": "Your home egress IP keeps changing (carrier-grade NAT makes it worse), so a manually entered IP goes stale fast. Have any always-on device at home (NAS, router, x86 soft router) request the URL below every few minutes: FlatNas records the source IP of that request as your home egress IP, so it follows the changes automatically. The device only needs outbound internet — no public IP, and double NAT / a secondary router is fine.",
+    "homeBeaconNeedLogin": "Sign in to see the heartbeat URL.",
+    "homeBeaconUrlLabel": "Heartbeat URL (your home device calls it periodically)",
+    "homeBeaconCron": "Linux / NAS: */5 * * * * curl -fsS \"the URL above\" >/dev/null 2>&1",
+    "homeBeaconPrefixOn": "Same /24 match: on",
+    "homeBeaconPrefixOff": "Same /24 match: off",
+    "homeBeaconPrefixHint": "When enabled, any public IP inside the same /24 as a heartbeat record also counts as home (behind CGNAT your phone and NAS may land on different IPs from one pool). Disable it to require an exact match.",
+    "homeBeaconRegenerate": "Regenerate token",
+    "homeBeaconClear": "Clear records",
+    "homeBeaconLast": "Last heartbeat: {ip} ({time})",
+    "homeBeaconNever": "No heartbeat received yet.",
+    "homeBeaconCurrentHome": "Current verdict: at home",
+    "homeBeaconCurrentAway": "Current verdict: away",
+    "copy": "Copy",
+    "copied": "Copied"
   },
   "networkIndicator": {
     "online": "Online",

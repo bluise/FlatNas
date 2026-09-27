@@ -432,7 +432,7 @@
   "extraSections": {
     "advancedWidgetConfig": "高级组件配置",
     "networkDetectionSettings": "网络环境判定设置",
-    "homeNetworkTitle": "家庭网络识别",
+    "homeNetworkTitle": "手动登记家庭出口 IP（可选；IP 常变请用下面的心跳）",
     "homeNetworkHint": "填写你家的公网出口 IP（每行一个，支持前缀如 1.2.3.）。在家时直接使用内网地址 —— 这条判断在服务端完成，所以 HTTPS 访问同样有效，不受浏览器限制。",
     "homeNetworkIps": "家庭网络公网 IP",
     "homeNetworkUseCurrent": "把当前网络设为家庭网络",
@@ -685,7 +685,23 @@
     "enableLatencyForce": "启用延迟判定",
     "latencyForceEnabled": "已启用",
     "latencyForceDesc": "仅用响应延迟决定内外网，不看域名和 IP",
-    "latencyForceDisabledDesc": "当前未启用；启用后完全按延迟判定"
+    "latencyForceDisabledDesc": "当前未启用；启用后完全按延迟判定",
+    "homeBeaconTitle": "家庭网络心跳（推荐，动态 IP 也能用）",
+    "homeBeaconHint": "家宽出口 IP 会变（运营商大内网/CGNAT 尤其频繁），手动填写很快就会失效。让家里任意一台 24 小时在线的设备（NAS、路由器、软路由都行）每隔几分钟请求下面这个地址，FlatNas 就会把「这次请求的来源 IP」记成家庭出口 IP —— IP 怎么变都自动跟上，你不用再管。只要设备能上外网即可，家里不需要有公网 IP，也不影响双路由/二级路由。",
+    "homeBeaconNeedLogin": "登录后才能查看心跳地址。",
+    "homeBeaconUrlLabel": "心跳地址（家里的设备定时请求它）",
+    "homeBeaconCron": "Linux / NAS：*/5 * * * * curl -fsS \"上面的地址\" >/dev/null 2>&1",
+    "homeBeaconPrefixOn": "同网段匹配：开",
+    "homeBeaconPrefixOff": "同网段匹配：关",
+    "homeBeaconPrefixHint": "「同网段匹配」开启时，同一个 /24 段内的其他公网 IP 也算在家（大内网下手机和 NAS 可能拿到同一个池子里不同的 IP）。关掉后只认完全相同的 IP。",
+    "homeBeaconRegenerate": "重新生成 token",
+    "homeBeaconClear": "清空记录",
+    "homeBeaconLast": "最近一次心跳：{ip}（{time}）",
+    "homeBeaconNever": "还没有收到过心跳。",
+    "homeBeaconCurrentHome": "当前判定：在家",
+    "homeBeaconCurrentAway": "当前判定：不在家",
+    "copy": "复制",
+    "copied": "已复制"
   },
   "networkIndicator": {
     "online": "在线",

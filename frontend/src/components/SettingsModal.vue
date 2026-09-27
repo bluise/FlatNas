@@ -92,6 +92,88 @@ const toggleLatencyForceMode = () => {
   store.forceNetworkMode = store.forceNetworkMode === "latency" ? "auto" : "latency";
   store.markDirty();
 };
+// ── 家庭网络心跳 ────────────────────────────────────────────────
+// 家宽出口 IP 会变（CGNAT 尤其频繁），手填很快就会失效。
+// 让家里任意一台 24h 在线的设备定时请求下面的地址，服务端就把来源 IP 记成家庭出口 IP。
+type HomeBeaconRecord = { ip: string; at: string; source?: string };
+const homeBeaconInfo = ref<{
+  token: string;
+  prefixMatch: boolean;
+  records: HomeBeaconRecord[];
+} | null>(null);
+const homeBeaconBusy = ref(false);
+const homeBeaconCopied = ref(false);
+
+/** 心跳地址（家那台设备要请求的 URL，已带上 token） */
+const homeBeaconPingUrl = computed(() => {
+  const token = homeBeaconInfo.value?.token || "";
+  if (!token || typeof window === "undefined") return "";
+  const api = toApiUrl("/api/home-beacon/ping");
+  const base = /^https?:\/\//i.test(api) ? api : `${window.location.origin}${api}`;
+  return `${base}?token=${token}`;
+});
+
+const homeBeaconLastRecord = computed<HomeBeaconRecord | null>(
+  () => homeBeaconInfo.value?.records?.[0] || null,
+);
+
+const homeBeaconLastText = computed(() => {
+  const at = homeBeaconLastRecord.value?.at;
+  if (!at) return "";
+  const ts = new Date(at).getTime();
+  return Number.isFinite(ts) ? new Date(ts).toLocaleString() : "";
+});
+
+const applyHomeBeaconPayload = (payload: unknown) => {
+  const data = (payload as { data?: unknown })?.data ?? payload;
+  const d = data as { token?: string; prefixMatch?: boolean; records?: HomeBeaconRecord[] } | null;
+  if (!d || typeof d.token !== "string") return;
+  homeBeaconInfo.value = {
+    token: d.token,
+    prefixMatch: d.prefixMatch !== false,
+    records: Array.isArray(d.records) ? d.records : [],
+  };
+};
+
+const loadHomeBeacon = async () => {
+  try {
+    const res = await fetch(toApiUrl("/api/home-beacon"), { headers: store.getHeaders() });
+    if (!res.ok) return;
+    applyHomeBeaconPayload(await res.json());
+  } catch (e) {
+    console.warn("[SettingsModal] 读取家庭网络心跳失败", e);
+  }
+};
+
+const updateHomeBeacon = async (body: Record<string, unknown>) => {
+  homeBeaconBusy.value = true;
+  try {
+    const res = await fetch(toApiUrl("/api/home-beacon"), {
+      method: "POST",
+      headers: { ...store.getHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) return;
+    applyHomeBeaconPayload(await res.json());
+  } catch (e) {
+    console.warn("[SettingsModal] 更新家庭网络心跳失败", e);
+  } finally {
+    homeBeaconBusy.value = false;
+  }
+};
+
+const copyHomeBeaconUrl = async () => {
+  const url = homeBeaconPingUrl.value;
+  if (!url) return;
+  try {
+    await navigator.clipboard.writeText(url);
+    homeBeaconCopied.value = true;
+    window.setTimeout(() => (homeBeaconCopied.value = false), 1500);
+  } catch {
+    // 剪贴板不可用时退化成让用户自己选中复制
+  }
+};
+
 /** 把当前客户端出口 IP 追加进「家庭网络 IP」列表（在家时点一下即可） */
 const useCurrentNetworkAsHome = () => {
   const ip = String(store.clientPublicIp || "").trim();
@@ -1780,6 +1862,9 @@ watch(
 watch(activeTab, (val) => {
   if (val === "account" && store.isLogged && (store.systemConfig.authMode === "single" || !canManageUsers.value)) {
     fetchVersions();
+  }
+  if (val === "network" && store.isLogged) {
+    loadHomeBeacon();
   }
 });
 </script>
@@ -3662,6 +3747,113 @@ watch(activeTab, (val) => {
                   }}
                 </span>
               </div>
+            </div>
+
+            <!-- 家庭网络心跳：家宽动态 IP / CGNAT 场景下唯一免维护的判据 -->
+            <div class="bg-gray-50 border border-gray-100 rounded-xl p-4 space-y-3">
+              <h5 class="text-sm font-medium text-gray-700">{{ $t('settings.extraSections.homeBeaconTitle') }}</h5>
+              <div class="flex items-start gap-2">
+                <span
+                  class="text-xs text-gray-500 font-medium border border-gray-200 rounded px-1.5 py-0.5 mt-0.5"
+                  >注</span
+                >
+                <p class="text-xs text-gray-600 leading-relaxed">
+                  {{ $t('settings.extraSections.homeBeaconHint') }}
+                </p>
+              </div>
+
+              <div v-if="!store.isLogged" class="text-[11px] text-gray-500">
+                {{ $t('settings.extraSections.homeBeaconNeedLogin') }}
+              </div>
+
+              <template v-else>
+                <div class="space-y-2">
+                  <label class="block text-sm font-medium text-gray-700">{{
+                    $t('settings.extraSections.homeBeaconUrlLabel')
+                  }}</label>
+                  <div class="flex items-center gap-2">
+                    <input
+                      :value="homeBeaconPingUrl"
+                      readonly
+                      class="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-[11px] font-mono bg-white focus:border-gray-900 outline-none"
+                    />
+                    <button
+                      type="button"
+                      @click="copyHomeBeaconUrl"
+                      :disabled="!homeBeaconPingUrl"
+                      class="px-3 py-2 rounded-lg text-xs font-bold transition-colors border whitespace-nowrap"
+                      :class="
+                        homeBeaconPingUrl
+                          ? 'bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100'
+                          : 'bg-white text-gray-400 border-gray-200 cursor-not-allowed'
+                      "
+                    >
+                      {{ homeBeaconCopied ? $t('settings.extraSections.copied') : $t('settings.extraSections.copy') }}
+                    </button>
+                  </div>
+                  <p class="text-[11px] text-gray-500 font-mono break-all">
+                    {{ $t('settings.extraSections.homeBeaconCron') }}
+                  </p>
+                </div>
+
+                <div class="flex items-center gap-3 flex-wrap">
+                  <button
+                    type="button"
+                    :disabled="homeBeaconBusy"
+                    @click="updateHomeBeacon({ prefixMatch: !(homeBeaconInfo?.prefixMatch !== false) })"
+                    class="px-3 py-1.5 rounded-lg text-xs font-bold transition-colors border whitespace-nowrap"
+                    :class="
+                      homeBeaconInfo?.prefixMatch !== false
+                        ? 'bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100'
+                        : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                    "
+                  >
+                    {{
+                      homeBeaconInfo?.prefixMatch !== false
+                        ? $t('settings.extraSections.homeBeaconPrefixOn')
+                        : $t('settings.extraSections.homeBeaconPrefixOff')
+                    }}
+                  </button>
+                  <button
+                    type="button"
+                    :disabled="homeBeaconBusy"
+                    @click="updateHomeBeacon({ regenerateToken: true })"
+                    class="px-3 py-1.5 rounded-lg text-xs font-bold bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 transition-colors whitespace-nowrap"
+                  >
+                    {{ $t('settings.extraSections.homeBeaconRegenerate') }}
+                  </button>
+                  <button
+                    type="button"
+                    :disabled="homeBeaconBusy"
+                    @click="updateHomeBeacon({ clear: true })"
+                    class="px-3 py-1.5 rounded-lg text-xs font-bold bg-white text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors whitespace-nowrap"
+                  >
+                    {{ $t('settings.extraSections.homeBeaconClear') }}
+                  </button>
+                </div>
+
+                <div class="text-[11px] text-gray-500 leading-relaxed">
+                  <div>
+                    {{ $t('settings.extraSections.homeBeaconPrefixHint') }}
+                  </div>
+                  <div v-if="homeBeaconLastRecord">
+                    {{
+                      $t('settings.extraSections.homeBeaconLast', {
+                        ip: homeBeaconLastRecord.ip,
+                        time: homeBeaconLastText,
+                      })
+                    }}
+                  </div>
+                  <div v-else>{{ $t('settings.extraSections.homeBeaconNever') }}</div>
+                  <div>
+                    {{
+                      store.homeNetworkMatch
+                        ? $t('settings.extraSections.homeBeaconCurrentHome')
+                        : $t('settings.extraSections.homeBeaconCurrentAway')
+                    }}
+                  </div>
+                </div>
+              </template>
             </div>
 
             <!-- 延迟判定阈值：仅「延迟判定」强制档使用 -->

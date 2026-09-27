@@ -432,7 +432,7 @@
   "extraSections": {
     "advancedWidgetConfig": "Configuración avanzada de componentes",
     "networkDetectionSettings": "Configuración de detección de red",
-    "homeNetworkTitle": "Detección de red doméstica",
+    "homeNetworkTitle": "Registrar manualmente la IP de salida de casa (opcional; usa el latido si cambia)",
     "homeNetworkHint": "Introduce la IP pública de salida de tu red doméstica (una por línea, se admite prefijo como 1.2.3.). En casa se usa directamente la dirección LAN; la comprobación se hace en el servidor, por lo que también funciona con HTTPS.",
     "homeNetworkIps": "IP pública de la red doméstica",
     "homeNetworkUseCurrent": "Usar la red actual como red doméstica",
@@ -685,7 +685,23 @@
     "enableLatencyForce": "Activar modo por latencia",
     "latencyForceEnabled": "Activado",
     "latencyForceDesc": "Decide LAN/WAN solo por la latencia, sin mirar dominio ni IP",
-    "latencyForceDisabledDesc": "Desactivado; al activarlo solo se usa la latencia"
+    "latencyForceDisabledDesc": "Desactivado; al activarlo solo se usa la latencia",
+    "homeBeaconTitle": "Latido de red doméstica (recomendado; funciona con IP dinámica)",
+    "homeBeaconHint": "La IP de salida de tu casa cambia constantemente (con CGNAT todavía más), así que una IP escrita a mano caduca enseguida. Haz que un dispositivo siempre encendido en casa (NAS, router) solicite la URL de abajo cada pocos minutos: FlatNas guarda la IP de origen de esa petición como IP de salida de casa y sigue los cambios automáticamente. El dispositivo solo necesita salida a internet: no hace falta IP pública y el doble NAT no molesta.",
+    "homeBeaconNeedLogin": "Inicia sesión para ver la URL del latido.",
+    "homeBeaconUrlLabel": "URL del latido (tu dispositivo en casa la llama periódicamente)",
+    "homeBeaconCron": "Linux / NAS: */5 * * * * curl -fsS \"la URL de arriba\" >/dev/null 2>&1",
+    "homeBeaconPrefixOn": "Coincidencia /24: activada",
+    "homeBeaconPrefixOff": "Coincidencia /24: desactivada",
+    "homeBeaconPrefixHint": "Si está activada, cualquier IP pública dentro del mismo /24 que un registro también cuenta como casa (con CGNAT el móvil y el NAS pueden recibir IPs distintas de un mismo pool). Desactivada, exige coincidencia exacta.",
+    "homeBeaconRegenerate": "Regenerar token",
+    "homeBeaconClear": "Borrar registros",
+    "homeBeaconLast": "Último latido: {ip} ({time})",
+    "homeBeaconNever": "Aún no se ha recibido ningún latido.",
+    "homeBeaconCurrentHome": "Veredicto actual: en casa",
+    "homeBeaconCurrentAway": "Veredicto actual: fuera",
+    "copy": "Copiar",
+    "copied": "Copiado"
   },
   "networkIndicator": {
     "online": "En línea",

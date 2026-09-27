@@ -104,6 +104,35 @@ describe("computeEffectiveNetworkMode", () => {
     ).toBe("default_wan");
   });
 
+  it("服务端心跳判定「在家」：优先级仅次于强制档与探测，且不依赖浏览器探测", () => {
+    // HTTPS 页面探 http 内网地址会被 Mixed Content 拦掉，所以探测这条路在公网 VPS
+    // + HTTPS 部署下是死的；心跳（服务端比对出口 IP）才是能用的那条。
+    const r = computeEffectiveNetworkMode(vps.hostname, vps.clientIp, "header", 0, {
+      homeNetworkMatch: true,
+      lanProbeOutcome: "blocked",
+    });
+    expect(r.isLan).toBe(true);
+    expect(r.reason).toBe("home_beacon_match");
+  });
+
+  it("心跳未命中时不会误判成在家", () => {
+    const r = computeEffectiveNetworkMode(vps.hostname, vps.clientIp, "header", 30, {
+      homeNetworkMatch: false,
+      lanProbeOutcome: "blocked",
+    });
+    expect(r.isLan).toBe(false);
+    expect(r.reason).toBe("default_wan");
+  });
+
+  it("强制档优先级仍高于心跳", () => {
+    const r = computeEffectiveNetworkMode(vps.hostname, vps.clientIp, "header", 30, {
+      homeNetworkMatch: true,
+      forceNetworkMode: "wan",
+    });
+    expect(r.isLan).toBe(false);
+    expect(r.reason).toBe("force_wan");
+  });
+
   it("内网部署场景（用私网地址访问）仍然照常命中", () => {
     const r = computeEffectiveNetworkMode("192.168.1.10", "", "", 5, {});
     expect(r.isLan).toBe(true);

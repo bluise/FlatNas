@@ -478,6 +478,8 @@ const networkDecisionOptions = (cfg: {
   homePublicIps: cfg.homePublicIps,
   latencyThresholdMs: cfg.latencyThresholdMs,
   lanProbeOutcome: lanProbeOutcome.value,
+  // 服务端算好的「出口 IP 是否属于家庭网络」，客户端不需要也不应该知道家里的 IP
+  homeNetworkMatch: store.homeNetworkMatch,
 });
 
 const networkDecision = computed(() => {
@@ -2730,6 +2732,9 @@ const fetchIp = async (force = false) => {
           lastKnownClientIp.value = data?.clientIp || "";
           store.clientPublicIp = lastKnownClientIp.value;
           lastKnownClientIpSource.value = data?.clientIpSource || "";
+          // 缓存里即使有也一律不采信（可能是 1 小时前的结论），改为现问一次
+          store.homeNetworkMatch = false;
+          void refreshHomeNetworkMatch();
           const cfg = networkConfig.value;
           const result = computeEffectiveNetworkMode(
             window.location.hostname,
@@ -2794,6 +2799,7 @@ const fetchIp = async (force = false) => {
       lastKnownClientIp.value = ipInfo.value.clientIp;
       store.clientPublicIp = lastKnownClientIp.value;
       lastKnownClientIpSource.value = ipInfo.value.clientIpSource;
+      store.homeNetworkMatch = data.homeNetworkMatch === true;
 
       const cfg = networkConfig.value;
       const result = computeEffectiveNetworkMode(
@@ -2825,6 +2831,35 @@ const fetchIp = async (force = false) => {
     store.ipFetchStatus = "error";
     store.isLanModeInited = true;
     updateCache();
+  }
+};
+
+/**
+ * 单独确认一次「现在是否在家」。
+ *
+ * 不能复用上面那份带 1 小时缓存的 IP 快照：同一台设备从家里走到外面时，
+ * 缓存会让它继续以为在家（恰好是本功能要避免的误判）。
+ * 所以缓存只管 IP/归属地展示，「是否在家」每次都用这个轻量接口现问一次。
+ */
+const refreshHomeNetworkMatch = async () => {
+  try {
+    const res = await fetch(`/api/home-beacon/match?ts=${Date.now()}`, { cache: "no-store" });
+    if (!res.ok) return;
+    const data = await res.json();
+    const next = data?.match === true;
+    if (next === store.homeNetworkMatch) return;
+    store.homeNetworkMatch = next;
+    if (!store.isLanModeInited) return;
+    const result = computeEffectiveNetworkMode(
+      window.location.hostname,
+      lastKnownClientIp.value,
+      lastKnownClientIpSource.value,
+      latency.value,
+      { ...networkDecisionOptions(networkConfig.value) },
+    );
+    isLanMode.value = result.isLan;
+  } catch {
+    // 静默失败：保留上一次结论，不影响其它判定路径
   }
 };
 
