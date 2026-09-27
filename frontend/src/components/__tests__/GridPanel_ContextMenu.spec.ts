@@ -34,16 +34,6 @@ vi.mock('../utils/gridLayout', () => ({
   generateLayout: (widgets: Record<string, unknown>[]) => widgets.map((w: Record<string, unknown>) => ({ ...w, i: w.id, x: 0, y: 0, w: 1, h: 1 })),
   compactVertical: (layout: unknown[]) => layout
 }));
-// 只覆盖需要打桩的两个导出，其余保持真实实现：
-// 之前这里是整体替换，组件新增 computeEffectiveNetworkMode 依赖后在 onMounted 直接抛错。
-vi.mock('@/utils/network', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/utils/network')>();
-  return {
-    ...actual,
-    isInternalNetwork: () => false,
-    getNetworkConfig: () => ({}),
-  };
-});
 
 describe('GridPanel Context Menu', () => {
   let wrapper: VueWrapper;

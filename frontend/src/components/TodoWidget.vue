@@ -31,9 +31,10 @@ const props = defineProps<{ widget: WidgetConfig }>();
 const store = useMainStore();
 const newItem = ref("");
 const saveStatus = ref<"saved" | "saving" | "unsaved">("saved");
-// LAN 判定只是一种"偏好"。在隧道/反代场景下 socket 可能实际断开，
+// socket 只是一种"偏好"：在隧道/反代场景下它可能实际断开，
 // 此时仍需要保留 HTTP 轮询兜底，避免 Todo 永久不同步。
-const shouldUseSocket = computed(() => store.isLanModeInited && store.effectiveIsLan && store.isConnected);
+// （网络判定已移除，不再区分内外网，直接看连接状态。）
+const shouldUseSocket = computed(() => store.isConnected);
 const TODO_POLL_INTERVAL_MS = 10000;
 const TODO_POLL_TIMEOUT_MS = 8000;
 const TODO_LOCAL_CHANGE_GRACE_MS = 8000;

@@ -730,13 +730,6 @@ export const useSyncStore = defineStore("sync", () => {
   const stopPingCheck = () => { if (pingCheckTimer) clearInterval(pingCheckTimer); pingCheckTimer = null; };
 
   // ---- Watches ----
-  watch(() => configStore.forceNetworkMode, (mode, prev) => {
-    if (!mode || mode === prev) return;
-    const ok = ["auto", "lan", "wan", "latency"].includes(mode);
-    if (!ok) return;
-    if (isConnected.value) { networkStore.stopNetworkHeartbeat(); networkStore.startNetworkHeartbeat(wsSend); }
-  });
-
   // Gate WS lifecycle on auth state changes to prevent guest reconnect storms
   watch(() => auth.isLogged, (logged) => {
     if (logged) {

@@ -6,7 +6,6 @@ import { useMainStore } from "../stores/main";
 
 const props = defineProps<{
   widget: WidgetConfig;
-  isLanMode?: boolean;
   isEditMode?: boolean;
 }>();
 
@@ -35,13 +34,10 @@ onMounted(() => {
 });
 
 const rawTargetUrl = computed(() => {
-  const { lanUrl, wanUrl, url } = props.widget.data || {};
-  // 兼容旧数据：如果 wanUrl 为空，使用 url
-  const effectiveWan = wanUrl || url || "";
-  // 如果 lanUrl 为空，回退到 wanUrl (避免内网访问时白屏)
-  const effectiveLan = lanUrl || effectiveWan;
-
-  return props.isLanMode ? effectiveLan : effectiveWan;
+  const { wanUrl, url } = props.widget.data || {};
+  // 网络判定已移除：内嵌页固定用外网地址。
+  // （HTTPS 页面里内嵌 http 内网地址会被浏览器按 Mixed Content 直接拦掉，本来也不可用。）
+  return wanUrl || url || "";
 });
 
 const isBlocked = computed(() => {

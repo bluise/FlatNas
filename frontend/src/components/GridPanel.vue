@@ -21,8 +21,6 @@ import { useIconPreloader } from "../composables/useIconPreloader";
 import { generateLayout, type GridLayoutItem } from "../utils/gridLayout";
 import type { NavItem, WidgetConfig, NavGroup } from "@/types";
 import OverlayMotion from "@/components/base/OverlayMotion.vue";
-import { isInternalNetwork, getNetworkConfig, computeEffectiveNetworkMode, NETWORK_REASON_TEXT } from "@/utils/network";
-import { decideBookmarkTarget, peekLanProbe, probeAnyReachable, probeLanUrl, type LanProbeOutcome } from "@/utils/lanProbe";
 import DOMPurify from "dompurify";
 const CHUNK_RELOAD_KEY = "flatnas:chunk-reload-at";
 const loadAsync = <T extends Component>(loader: AsyncComponentLoader<T>) =>
@@ -442,96 +440,49 @@ watch(showGroupSettingsModal, (val) => {
     store.layoutEditInProgress = false;
   }
 });
-const isLanMode = ref(false);
-const latency = ref(0);
-// 浏览器侧「内网地址是否可达」的探测结论，作为公网 VPS 部署下的关键判据
-const lanProbeOutcome = ref<LanProbeOutcome>("skipped");
-// 本次判定采用的原因码，供界面展示（原实现算完就丢掉了）
-const networkReason = ref("");
-const isChecking = ref(false);
+// 网络判定已整体移除：不再猜「在不在家」。
+// 点书签一律「内网优先」，同时给一条明确的退路 ——
+// 浏览器不允许 HTTPS 页面探测 http 内网地址，所以「不通自动走外网」在网页里做不到，
+// 这里改成：先开内网，页面顶部同时挂一条「打不开就切外网」的提示。
+// IP/归属地缓存的 key（按访问域名区分，与网络判定无关）
 const networkScope = typeof window !== "undefined" ? window.location.hostname : "default";
-const networkConfig = computed(() => getNetworkConfig(store.appConfig, store.forceNetworkMode));
-const forceMode = computed({
-  get: () => store.forceNetworkMode,
-  set: (val) => {
-    store.forceNetworkMode = val;
-  },
-});
-const latencyThresholdMs = computed(() => networkConfig.value.latencyThresholdMs);
-const lastKnownClientIp = ref("");
-const lastKnownClientIpSource = ref("");
+const fallbackOffer = ref<{ title: string; url: string } | null>(null);
+let fallbackOfferTimer: number | null = null;
 
-/**
- * 统一构造判定参数。
- *
- * 判定依据（按优先级）：强制档 → 浏览器内网可达性实测 → 家庭网络出口 IP →
- * 访问地址本身是内网 → 客户端 IP 是内网 → 默认外网。
- *
- * 这里集中构造，避免各调用点各写一份、漏传字段（历史上就漏过开关，导致设置项形同虚设）。
- */
-const networkDecisionOptions = (cfg: {
-  forceNetworkMode: "auto" | "lan" | "wan" | "latency";
-  homePublicIps: string;
-  latencyThresholdMs: number;
-}) => ({
-  forceNetworkMode: cfg.forceNetworkMode,
-  homePublicIps: cfg.homePublicIps,
-  latencyThresholdMs: cfg.latencyThresholdMs,
-  lanProbeOutcome: lanProbeOutcome.value,
-  // 服务端算好的「出口 IP 是否属于家庭网络」，客户端不需要也不应该知道家里的 IP
-  homeNetworkMatch: store.homeNetworkMatch,
-});
-
-const networkDecision = computed(() => {
-  if (!store.isLanModeInited) {
-    return { isLan: false, reason: "uninited", measuredLatencyMs: latency.value };
+const clearFallbackOffer = () => {
+  if (fallbackOfferTimer) {
+    window.clearTimeout(fallbackOfferTimer);
+    fallbackOfferTimer = null;
   }
-  return computeEffectiveNetworkMode(
-    window.location.hostname,
-    lastKnownClientIp.value,
-    lastKnownClientIpSource.value,
-    latency.value,
-    { ...networkDecisionOptions(networkConfig.value) },
-  );
-});
+};
 
-const effectiveIsLan = computed(() => networkDecision.value.isLan);
+const offerWanFallback = (title: string, wanUrl: string) => {
+  if (!wanUrl) return;
+  clearFallbackOffer();
+  fallbackOffer.value = { title, url: wanUrl };
+  fallbackOfferTimer = window.setTimeout(() => {
+    fallbackOffer.value = null;
+    fallbackOfferTimer = null;
+  }, 15000);
+};
 
-/** 判定原因文案（含浏览器内网探测结论），鼠标悬停在网络状态上可见 */
-const networkDecisionText = computed(() => {
-  const base = NETWORK_REASON_TEXT[networkDecision.value.reason] || networkDecision.value.reason;
-  const probe =
-    lanProbeOutcome.value === "reachable"
-      ? "内网地址可达"
-      : lanProbeOutcome.value === "unreachable"
-        ? "内网地址不可达"
-        : lanProbeOutcome.value === "blocked"
-          ? "探测被浏览器拦截（HTTPS 页面探测 HTTP 地址）"
-          : "";
-  return probe ? `${base} · ${probe}` : base;
-});
+const openFallbackOffer = () => {
+  const offer = fallbackOffer.value;
+  clearFallbackOffer();
+  fallbackOffer.value = null;
+  if (offer?.url) window.open(offer.url, "_blank");
+};
 
-watch(
-  [isLanMode, latency, effectiveIsLan],
-  ([lan, nextLatency, effective]) => {
-    store.isLanMode = lan;
-    store.networkLatency = nextLatency;
-    store.effectiveIsLan = effective;
-  },
-  { immediate: true },
-);
-
-const sidebarCollapsed = ref(true);
-const isSidebarEnabled = computed(() => {
-  const w = store.widgets.find((w) => w.type === "sidebar" && w.enable);
-  return checkVisible(w) && !(isMobile.value && w?.hideOnMobile);
-});
-
-const toggleForceMode = () => {
-  if (forceMode.value === "auto") forceMode.value = "lan";
-  else if (forceMode.value === "lan") forceMode.value = "wan";
-  else if (forceMode.value === "wan") forceMode.value = "latency";
-  else forceMode.value = "auto";
+/** 判断一个 host 是不是内网地址（只用于 Lucky STUN 端口替换，不再参与任何「判定」） */
+const isPrivateHost = (host: string) => {
+  const h = String(host || "").toLowerCase();
+  if (!h) return false;
+  if (h === "localhost" || h === "::1" || h.endsWith(".local")) return true;
+  if (/^127\./.test(h) || /^10\./.test(h) || /^192\.168\./.test(h) || /^169\.254\./.test(h)) return true;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true;
+  // 运营商大内网 / tailscale 之类的 CGNAT 段
+  if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(h)) return true;
+  return false;
 };
 
 const searchEngineStored = useStorage("flat-nas-engine", "google");
@@ -1235,28 +1186,8 @@ const toggleDevTools = () => {
   }
 };
 
-// ---- 内网地址探测：页面加载后预热，点击书签时通常直接命中缓存 ----
-const LAN_PROBE_REFRESH_MS = 60000;
-const LAN_PROBE_MAX_TARGETS = 8;
-let lanProbeTimer: number | null = null;
-
-const collectLanUrls = () =>
-  Array.from(
-    new Set(
-      (store.groups || [])
-        .flatMap((group) => (group.items || []).map((item) => item?.lanUrl))
-        .filter((url): url is string => typeof url === "string" && url.trim().length > 0),
-    ),
-  ).slice(0, LAN_PROBE_MAX_TARGETS);
-
-const refreshLanProbe = async () => {
-  const urls = collectLanUrls();
-  lanProbeOutcome.value = urls.length ? await probeAnyReachable(urls, { concurrency: 4 }) : "skipped";
-};
-
-const handleNetworkClick = async () => {
-  checkLatency();
-
+/** 连点标题 10 次打开内置调试面板（原来挂在网络状态上，判定移除后挪到标题） */
+const handleDevToolsClick = () => {
   const now = Date.now();
   if (!devtoolsClickTimer.value) {
     devtoolsClickTimer.value = now;
@@ -1285,104 +1216,7 @@ const fetchWithTimeout = (input: RequestInfo | URL, init: RequestInit = {}, time
   });
 };
 
-const checkLatency = async () => {
-  try {
-    if (isChecking.value) return;
-    isChecking.value = true;
-    const samples: number[] = [];
-    for (let i = 0; i < 2; i++) {
-      const start = performance.now();
-      try {
-        const res = await fetchWithTimeout(
-          `/api/rtt?ts=${Date.now()}`,
-          { method: "GET", cache: "no-store" },
-          500,
-        );
-        await res.json().catch(() => null);
-        samples.push(Math.round(performance.now() - start));
-      } catch {
-        if (forceMode.value === "latency") {
-          forceMode.value = "auto";
-        }
-      }
-      if (i === 0) {
-        await new Promise((resolve) => setTimeout(resolve, 60));
-      }
-    }
-    latency.value = samples.length > 0 ? Math.min(...samples) : 0;
-
-    if (latency.value > 0) {
-      const cfg = networkConfig.value;
-      const result = computeEffectiveNetworkMode(
-        window.location.hostname,
-        lastKnownClientIp.value,
-        lastKnownClientIpSource.value,
-        latency.value,
-        {
-          ...networkDecisionOptions(cfg),
-        },
-      );
-      isLanMode.value = result.isLan;
-    }
-  } finally {
-    isChecking.value = false;
-  }
-};
-
-watch(forceMode, (val) => {
-  if (val === "latency") {
-    checkLatency();
-  }
-  if (store.isLanModeInited) {
-    const cfg = networkConfig.value;
-    const result = computeEffectiveNetworkMode(
-      window.location.hostname,
-      lastKnownClientIp.value,
-      lastKnownClientIpSource.value,
-      latency.value,
-      {
-        ...networkDecisionOptions(cfg),
-      },
-    );
-    isLanMode.value = result.isLan;
-  }
-});
-watch(latencyThresholdMs, () => {
-  if (forceMode.value === "latency") {
-    checkLatency();
-  } else if (store.isLanModeInited) {
-    const cfg = networkConfig.value;
-    const result = computeEffectiveNetworkMode(
-      window.location.hostname,
-      lastKnownClientIp.value,
-      lastKnownClientIpSource.value,
-      latency.value,
-      {
-        ...networkDecisionOptions(cfg),
-      },
-    );
-    isLanMode.value = result.isLan;
-  }
-});
-
 onMounted(() => {
-  const cfg = networkConfig.value;
-  const initialResult = computeEffectiveNetworkMode(
-    window.location.hostname,
-    "",
-    "",
-    0,
-    {
-      ...networkDecisionOptions(cfg),
-    },
-  );
-  isLanMode.value = initialResult.isLan;
-  setTimeout(() => checkLatency(), 2000);
-  // 预热内网探测：等首屏稳定后跑一次，之后每 60s 刷新（与探测结果缓存 TTL 对齐）
-  setTimeout(() => void refreshLanProbe(), 300);
-  lanProbeTimer = window.setInterval(() => {
-    if (document.visibilityState === "visible") void refreshLanProbe();
-  }, LAN_PROBE_REFRESH_MS);
   fetchIp(true);
   ipInterval = window.setInterval(() => fetchIp(), 3600000);
   const ensureSearchFocus = () => {
@@ -1655,35 +1489,19 @@ const handleCardClick = async (item: NavItem) => {
   }
   if (isEditMode.value) return;
 
-  // 逻辑优化：
-  // 1. 默认使用外网链接 (item.url)
-  // 2. 只有在【已登录】且【处于内网环境】且【配置了内网链接】时，才优先使用内网链接
-  // 3. 支持强制切换模式
-  // 4. 修复：统一使用 effectiveIsLan 判断，确保 UI 显示与跳转行为一致
-
+  // 内网优先：不再做任何「在不在家」的判定。
+  // 配了内网地址就直接用内网地址，同时在页面顶部挂一条「打不开就切外网」的退路。
+  const lanUrl = typeof item.lanUrl === "string" ? item.lanUrl : "";
+  const wanUrl = typeof item.url === "string" ? item.url : "";
   let targetUrl = item.url;
 
-  // 「内网优先，内网不通再走外网」：
-  // auto 模式下先看这条书签的内网地址实测通不通（页面加载后已预热缓存，通常无需等待），
-  // 通就用内网、不通就回退外网；探不出结论（HTTPS 页面探 HTTP 地址会被浏览器拦截）时才用全局推断。
-  const lanUrl = typeof item.lanUrl === "string" ? item.lanUrl : "";
-  let probeOutcome: LanProbeOutcome = "skipped";
-  if (store.isLogged && lanUrl && networkConfig.value.forceNetworkMode === "auto") {
-    probeOutcome = peekLanProbe(lanUrl) ?? (await probeLanUrl(lanUrl));
+  if (store.isLogged && lanUrl) {
+    targetUrl = lanUrl;
+    offerWanFallback(item.title || "", wanUrl);
   }
-  targetUrl = decideBookmarkTarget({
-    url: item.url,
-    lanUrl,
-    loggedIn: store.isLogged,
-    forceMode: networkConfig.value.forceNetworkMode,
-    effectiveIsLan: effectiveIsLan.value,
-    probeOutcome,
-  });
 
-  // 特殊情况：如果解析出的 targetUrl 为空（说明没有外网链接），
-  // 但存在内网链接（说明是因为未登录被降级了，或者是压根没配外网链接）
-  // 此时如果用户未登录，则拦截并提示登录。
-  if (!targetUrl && item.lanUrl && !store.isLogged) {
+  // 未登录时内网地址不给用（可能暴露内网拓扑），提示登录
+  if (!targetUrl && lanUrl && !store.isLogged) {
     showLoginModal.value = true;
     return;
   }
@@ -1703,7 +1521,7 @@ const handleCardClick = async (item: NavItem) => {
       if (urlObj.hostname === window.location.hostname) {
         // 只要当前不是内网 IP 访问，就自动替换端口
         // (防止在局域网用 IP 访问时，被错误替换成公网端口导致无法访问)
-        if (!isInternalNetwork(window.location.hostname)) {
+        if (!isPrivateHost(window.location.hostname)) {
           urlObj.port = String(stunData.port);
           targetUrl = urlObj.toString();
         }
@@ -2149,10 +1967,6 @@ onUnmounted(() => {
   isMounted.value = false;
   store.unregisterDashboardPulse(fetchContainerStatuses);
   document.removeEventListener("visibilitychange", handleContainerVisibilityChange);
-  if (lanProbeTimer) {
-    window.clearInterval(lanProbeTimer);
-    lanProbeTimer = null;
-  }
 });
 
 // 监听 store.groups 变化，一旦出现容器组件，立即拉一次状态（之后由脉冲每 15s 驱动）
@@ -2718,9 +2532,7 @@ const formattedLocation = computed(() => {
 const fetchIp = async (force = false) => {
   const CACHE_KEY = `flatnas_ip_cache:${networkScope}`;
   const CACHE_DURATION = 60 * 60 * 1000; // 1 hour in ms
-  const initialIsLanMode = isLanMode.value;
   store.ipFetchStatus = "loading";
-  store.isLanModeInited = false;
 
   if (!force) {
     try {
@@ -2732,22 +2544,7 @@ const fetchIp = async (force = false) => {
           lastKnownClientIp.value = data?.clientIp || "";
           store.clientPublicIp = lastKnownClientIp.value;
           lastKnownClientIpSource.value = data?.clientIpSource || "";
-          // 缓存里即使有也一律不采信（可能是 1 小时前的结论），改为现问一次
-          store.homeNetworkMatch = false;
-          void refreshHomeNetworkMatch();
-          const cfg = networkConfig.value;
-          const result = computeEffectiveNetworkMode(
-            window.location.hostname,
-            lastKnownClientIp.value,
-            lastKnownClientIpSource.value,
-            latency.value,
-            {
-              ...networkDecisionOptions(cfg),
-            },
-          );
-          isLanMode.value = result.isLan;
           store.ipFetchStatus = "success";
-          store.isLanModeInited = true;
           return;
         }
       }
@@ -2799,19 +2596,6 @@ const fetchIp = async (force = false) => {
       lastKnownClientIp.value = ipInfo.value.clientIp;
       store.clientPublicIp = lastKnownClientIp.value;
       lastKnownClientIpSource.value = ipInfo.value.clientIpSource;
-      store.homeNetworkMatch = data.homeNetworkMatch === true;
-
-      const cfg = networkConfig.value;
-      const result = computeEffectiveNetworkMode(
-        window.location.hostname,
-        lastKnownClientIp.value,
-        lastKnownClientIpSource.value,
-        latency.value,
-        {
-          ...networkDecisionOptions(cfg),
-        },
-      );
-      isLanMode.value = result.isLan;
       store.ipFetchStatus = "success";
     } else {
       ipInfo.value.wanIp = data.ip || "";
@@ -2819,47 +2603,14 @@ const fetchIp = async (force = false) => {
       ipInfo.value.location = "未知位置";
       ipInfo.value.clientIp = data.clientIp || "";
       ipInfo.value.clientIpSource = data.clientIpSource || "";
-      isLanMode.value = initialIsLanMode;
       store.ipFetchStatus = "error";
     }
-    store.isLanModeInited = true;
     updateCache();
   } catch (e) {
     console.error("IP Fetch Error", e);
     ipInfo.value.wanIp = "";
-    isLanMode.value = initialIsLanMode;
     store.ipFetchStatus = "error";
-    store.isLanModeInited = true;
     updateCache();
-  }
-};
-
-/**
- * 单独确认一次「现在是否在家」。
- *
- * 不能复用上面那份带 1 小时缓存的 IP 快照：同一台设备从家里走到外面时，
- * 缓存会让它继续以为在家（恰好是本功能要避免的误判）。
- * 所以缓存只管 IP/归属地展示，「是否在家」每次都用这个轻量接口现问一次。
- */
-const refreshHomeNetworkMatch = async () => {
-  try {
-    const res = await fetch(`/api/home-beacon/match?ts=${Date.now()}`, { cache: "no-store" });
-    if (!res.ok) return;
-    const data = await res.json();
-    const next = data?.match === true;
-    if (next === store.homeNetworkMatch) return;
-    store.homeNetworkMatch = next;
-    if (!store.isLanModeInited) return;
-    const result = computeEffectiveNetworkMode(
-      window.location.hostname,
-      lastKnownClientIp.value,
-      lastKnownClientIpSource.value,
-      latency.value,
-      { ...networkDecisionOptions(networkConfig.value) },
-    );
-    isLanMode.value = result.isLan;
-  } catch {
-    // 静默失败：保留上一次结论，不影响其它判定路径
   }
 };
 
@@ -2967,6 +2718,42 @@ onUnmounted(() => {
     class="min-h-dvh relative overflow-hidden flex flex-col pt-[env(safe-area-inset-top)]"
     :class="{ 'empire-theme': store.appConfig.empireMode }"
   >
+    <!-- 内网地址兜底提示：网络判定已移除，点书签一律先开内网地址；
+         浏览器不允许 HTTPS 页面探测 http 内网地址，所以「不通自动走外网」做不到，
+         这里给一键切换。 -->
+    <Transition
+      enter-active-class="transition-all duration-300 ease-out"
+      enter-from-class="opacity-0 -translate-y-4"
+      enter-to-class="opacity-100 translate-y-0"
+      leave-active-class="transition-all duration-200 ease-in"
+      leave-from-class="opacity-100 translate-y-0"
+      leave-to-class="opacity-0 -translate-y-4"
+    >
+      <div
+        v-if="fallbackOffer"
+        class="fixed top-4 left-1/2 -translate-x-1/2 z-[110] bg-amber-500/95 backdrop-blur-sm text-white px-4 py-2 rounded-xl shadow-lg flex items-center gap-3 text-sm font-medium max-w-[92vw]"
+      >
+        <span class="truncate">
+          已打开「{{ fallbackOffer.title }}」的内网地址，打不开？
+        </span>
+        <button
+          type="button"
+          @click="openFallbackOffer"
+          class="shrink-0 px-3 py-1 rounded-lg bg-white/95 text-amber-700 text-xs font-bold hover:bg-white transition-colors"
+        >
+          改用外网地址
+        </button>
+        <button
+          type="button"
+          @click="fallbackOffer = null"
+          class="shrink-0 w-5 h-5 flex items-center justify-center rounded-full hover:bg-white/20 transition-colors"
+          aria-label="关闭"
+        >
+          ×
+        </button>
+      </div>
+    </Transition>
+
     <!-- Wallpaper Auto-Update Error Toast -->
     <Transition
       enter-active-class="transition-all duration-300 ease-out"
@@ -3122,6 +2909,7 @@ onUnmounted(() => {
             :style="{ order: isHeaderRowLayout && store.appConfig.titleAlign === 'right' ? 2 : 0 }"
           >
             <h1
+              @click="handleDevToolsClick"
               class="font-bold transition-all duration-300 whitespace-nowrap"
               :style="{
                 fontSize: store.appConfig.titleSize + 'px',
@@ -3164,47 +2952,6 @@ onUnmounted(() => {
               >
                 {{ isEditMode ? "完成" : "编辑" }}
               </button>
-              <button
-                @click="toggleForceMode"
-                class="px-3 h-6 rounded-full text-[10px] font-bold transition-all"
-                :class="{
-                  'bg-gray-100 text-gray-400 hover:bg-gray-200': forceMode === 'auto',
-                  'bg-green-100 text-green-600 hover:bg-green-200': forceMode === 'lan',
-                  'bg-blue-100 text-blue-600 hover:bg-blue-200': forceMode === 'wan',
-                  'bg-yellow-100 text-yellow-700 hover:bg-yellow-200': forceMode === 'latency',
-                }"
-              >
-                {{
-                  forceMode === "auto"
-                    ? "自动"
-                    : forceMode === "lan"
-                      ? "强制内网"
-                      : forceMode === "wan"
-                        ? "强制外网"
-                        : "延迟判定"
-                }}
-              </button>
-              <div
-                class="flex items-center gap-2 px-3 h-full rounded-full text-[10px] font-medium cursor-pointer hover:bg-gray-100 transition-all select-none"
-                :title="networkDecisionText"
-                @click="handleNetworkClick"
-              >
-                <template v-if="isChecking"
-                  ><div
-                    class="w-2 h-2 border-2 border-gray-300 border-t-blue-500 rounded-full animate-spin"
-                  ></div
-                ></template>
-                <template v-else
-                  ><div
-                    class="w-1.5 h-1.5 rounded-full"
-                    :class="effectiveIsLan ? 'bg-green-500' : 'bg-blue-500'"
-                  ></div>
-                  <span :class="effectiveIsLan ? 'text-green-700' : 'text-blue-700'">{{
-                    effectiveIsLan ? "内网" : "外网"
-                  }}</span
-                  ><span class="text-gray-400 border-l pl-2 ml-1">{{ latency }}ms</span></template
-                >
-              </div>
               <button
                 @click="handleAuthAction"
                 class="px-3 h-6 rounded-full text-[10px] font-bold transition-all"
@@ -3591,7 +3338,6 @@ onUnmounted(() => {
             <IframeWidget
               v-else-if="widget.type === 'iframe'"
               :widget="widget"
-              :is-lan-mode="effectiveIsLan"
               :is-edit-mode="isEditMode"
             />
             <BookmarkWidget v-else-if="widget.type === 'bookmarks'" :widget="widget" />

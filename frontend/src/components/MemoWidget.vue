@@ -74,11 +74,9 @@ const historyVersions = ref<MemoVersion[]>([]);
 const selectedVersionId = ref("new");
 const activeVersionIndex = ref(0);
 const versionWrapperRef = ref<HTMLDivElement | null>(null);
-const autoSaveDelay = computed(() => {
-  if (!store.isLanModeInited || store.effectiveIsLan) return 800;
-  return Math.max(900, CONFIG.TUNNEL_FORWARD_BASELINE_MS * 3);
-});
-const preferSocketSync = computed(() => store.isLanModeInited && store.effectiveIsLan);
+// 网络判定已移除，本地编辑统一按最短延迟落盘（保存本身有防抖与冲突保护）
+const autoSaveDelay = computed(() => 800);
+const preferSocketSync = computed(() => store.isConnected);
 
 type VersionOption = {
   id: string;

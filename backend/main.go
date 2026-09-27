@@ -313,16 +313,6 @@ func main() {
 		api.GET("/version", middleware.OptionalAuthMiddleware(), handlers.GetVersion)
 		api.GET("/system-config", handlers.GetSystemConfig)
 		api.GET("/ip", handlers.GetIP) // Added GetIP
-		// 家庭网络心跳：家里 24h 设备（NAS/路由器）定时打一下，服务端就把「这次请求的来源 IP」
-		// 记成家庭出口 IP，于是家宽动态 IP / CGNAT 变化都能自动跟上，用户不用手填。
-		// 走 token 鉴权而不是登录态，因为家里那台设备不会登录。
-		api.GET("/home-beacon/ping", handlers.HomeBeaconPing)
-		// 轻量判定：前端处理完本地缓存后再确认一次「现在到底在不在家」
-		api.GET("/home-beacon/match", handlers.HomeBeaconMatch)
-		api.POST("/home-beacon/ping", handlers.HomeBeaconPing)
-		// 兼容 Lucky 的 STUN webhook（设置页给出的地址就是它）
-		api.GET("/webhook/lucky/stun", handlers.HomeBeaconPing)
-		api.POST("/webhook/lucky/stun", handlers.HomeBeaconPing)
 		api.GET("/hot", handlers.GetHot)
 		api.GET("/rss", handlers.GetRss)
 		api.GET("/rss/meta", handlers.GetRssMeta)
@@ -380,9 +370,6 @@ func main() {
 			authorized.POST("/docker/check-updates", handlers.TriggerUpdateCheck)
 			authorized.POST("/docker/container/:id/:action", handlers.ContainerAction)
 			authorized.POST("/custom-scripts", handlers.SaveCustomScripts)
-			// 家庭网络心跳配置（token 生成/重置、同网段匹配开关、记录查询）
-			authorized.GET("/home-beacon", handlers.GetHomeBeaconInfo)
-			authorized.POST("/home-beacon", handlers.UpdateHomeBeaconConfig)
 
 			// Wallpaper
 			authorized.GET("/wallpaper/proxy", handlers.ProxyWallpaper)

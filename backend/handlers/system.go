@@ -606,13 +606,6 @@ func saveIPInfoToCache(info *IPInfo, provider string) {
 
 func GetIP(c *gin.Context) {
 	clientIp, clientIpSource := extractClientIP(c.Request)
-	// 家庭网络判定在服务端完成：客户端本来就拿不到「自家出口 IP」，
-	// 让服务端直接把「是否命中家庭网络心跳记录」这一个布尔值告诉前端，
-	// 既避免把家里的公网 IP 暴露到公开接口上，也不用在两端各写一份匹配规则。
-	homeMatch := false
-	if clientIpSource == "header" {
-		homeMatch, _ = homeBeaconMatch(clientIp)
-	}
 	refresh := strings.TrimSpace(c.Query("refresh"))
 	refreshed := false
 	if refresh == "1" || strings.EqualFold(refresh, "true") {
@@ -634,17 +627,16 @@ func GetIP(c *gin.Context) {
 
 	if cacheValid {
 		c.JSON(http.StatusOK, gin.H{
-			"success":          true,
-			"ip":               ip,
-			"location":         location,
-			"country":          country,
-			"region":           region,
-			"city":             city,
-			"queryIp":          ip,
-			"clientIp":         clientIp,
-			"clientIpSource":   clientIpSource,
-			"homeNetworkMatch": homeMatch,
-			"cached":           true,
+			"success":        true,
+			"ip":             ip,
+			"location":       location,
+			"country":        country,
+			"region":         region,
+			"city":           city,
+			"queryIp":        ip,
+			"clientIp":       clientIp,
+			"clientIpSource": clientIpSource,
+			"cached":         true,
 		})
 		return
 	}
@@ -653,11 +645,10 @@ func GetIP(c *gin.Context) {
 	if refreshed {
 		// Just tried and failed
 		c.JSON(http.StatusOK, gin.H{
-			"success":          false,
-			"ip":               clientIp,
-			"clientIp":         clientIp,
-			"clientIpSource":   clientIpSource,
-			"homeNetworkMatch": homeMatch,
+			"success":        false,
+			"ip":             clientIp,
+			"clientIp":       clientIp,
+			"clientIpSource": clientIpSource,
 		})
 		return
 	}
@@ -666,17 +657,16 @@ func GetIP(c *gin.Context) {
 	if fetchIPAndCache() {
 		globalIPCache.Mutex.RLock()
 		c.JSON(http.StatusOK, gin.H{
-			"success":          true,
-			"ip":               globalIPCache.IP,
-			"location":         globalIPCache.Location,
-			"country":          globalIPCache.Country,
-			"region":           globalIPCache.Region,
-			"city":             globalIPCache.City,
-			"queryIp":          globalIPCache.IP,
-			"clientIp":         clientIp,
-			"clientIpSource":   clientIpSource,
-			"homeNetworkMatch": homeMatch,
-			"cached":           false,
+			"success":        true,
+			"ip":             globalIPCache.IP,
+			"location":       globalIPCache.Location,
+			"country":        globalIPCache.Country,
+			"region":         globalIPCache.Region,
+			"city":           globalIPCache.City,
+			"queryIp":        globalIPCache.IP,
+			"clientIp":       clientIp,
+			"clientIpSource": clientIpSource,
+			"cached":         false,
 		})
 		globalIPCache.Mutex.RUnlock()
 		return

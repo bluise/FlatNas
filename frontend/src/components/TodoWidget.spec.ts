@@ -20,10 +20,8 @@ const { saveSingleWidgetMock, wsSendMock, fetchMock } = vi.hoisted(() => ({
 
 vi.mock("../stores/main", () => ({
   useMainStore: () => ({
-    // 非 LAN + 未连接 socket：强制走 HTTP 轮询分支
+    // 未连接 socket：强制走 HTTP 轮询分支
     isLogged: true,
-    isLanModeInited: true,
-    effectiveIsLan: false,
     isConnected: false,
     token: "test-token",
     getHeaders: () => ({ Authorization: "Bearer test-token" }),

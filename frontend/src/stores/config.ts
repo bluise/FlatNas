@@ -7,28 +7,18 @@ import { isRemoteVersionNewer } from "@/utils/version";
 
 export const useConfigStore = defineStore("config", () => {
   // Pure client-only states (NOT synced to server)
-  const forceNetworkMode = useStorage<"auto" | "lan" | "wan" | "latency">(
-    "flatnas-force-network-mode",
-    "auto",
-  );
   const isExpandedMode = ref(false);
   const activeMusicPlayer = ref<"mini-player" | "music-widget" | null>(null);
   const webPaginationActiveGroupId = ref("");
-  const isLanModeInited = ref(false);
-  const isLanMode = ref(false);
-  const networkLatency = ref(0);
-  const effectiveIsLan = ref(false);
-  // 当前客户端的公网出口 IP（由 /api/ip 得到），设置页用它一键填入「家庭网络 IP」
+  // 当前客户端的公网出口 IP（由 /api/ip 得到），IP 组件展示用
   const clientPublicIp = ref("");
-  // 服务端判定：当前访问者的出口 IP 是否命中「家庭网络心跳」记录
-  const homeNetworkMatch = ref(false);
   const ipFetchStatus = ref<"success" | "error" | "loading">("loading");
   const weatherNetworkStatus = ref<"online" | "degraded" | "offline">("online");
   const isPageUnloading = ref(false);
   const serverSyncLockCount = ref(0);
 
   // Version / update checking
-  const currentVersion = "1.6.4";
+  const currentVersion = "1.6.5";
   const latestVersion = ref("");
   const dockerUpdateAvailable = ref(false);
   const updateCheckLastAt = useStorage<number>("flat-nas-update-check-last-at", 0);
@@ -248,16 +238,10 @@ export const useConfigStore = defineStore("config", () => {
   return {
     appConfig,
     systemConfig,
-    forceNetworkMode,
     isExpandedMode,
     activeMusicPlayer,
     webPaginationActiveGroupId,
-    isLanModeInited,
-    isLanMode,
-    networkLatency,
-    effectiveIsLan,
     clientPublicIp,
-    homeNetworkMatch,
     ipFetchStatus,
     weatherNetworkStatus,
     isPageUnloading,

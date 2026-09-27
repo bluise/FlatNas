@@ -26,8 +26,6 @@ vi.mock("idb", () => ({
 vi.mock("../../stores/main", () => ({
   useMainStore: () => ({
     isLogged: true,
-    isLanModeInited: true,
-    effectiveIsLan: false,
     isConnected: false,
     token: "test-token",
     getHeaders: () => ({ Authorization: "Bearer test-token" }),

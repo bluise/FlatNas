@@ -33,12 +33,6 @@ export const useMainStore = defineStore("main", () => {
   // ---- Config ----
   const appConfig = computed(() => configStore.appConfig);
   const systemConfig = computed(() => configStore.systemConfig);
-  const forceNetworkMode = computed({
-    get: () => configStore.forceNetworkMode,
-    set: (v) => {
-      configStore.forceNetworkMode = v;
-    },
-  });
   const isExpandedMode = computed({
     get: () => configStore.isExpandedMode,
     set: (v) => {
@@ -57,42 +51,11 @@ export const useMainStore = defineStore("main", () => {
       configStore.webPaginationActiveGroupId = v;
     },
   });
-  const isLanModeInited = computed({
-    get: () => configStore.isLanModeInited,
-    set: (v) => {
-      configStore.isLanModeInited = v;
-    },
-  });
-  const isLanMode = computed({
-    get: () => configStore.isLanMode,
-    set: (v) => {
-      configStore.isLanMode = v;
-    },
-  });
-  const networkLatency = computed({
-    get: () => configStore.networkLatency,
-    set: (v) => {
-      configStore.networkLatency = v;
-    },
-  });
-  const effectiveIsLan = computed({
-    get: () => configStore.effectiveIsLan,
-    set: (v) => {
-      configStore.effectiveIsLan = v;
-    },
-  });
   /** 当前客户端公网出口 IP（设置页「把当前网络设为家庭网络」用） */
   const clientPublicIp = computed({
     get: () => configStore.clientPublicIp,
     set: (v) => {
       configStore.clientPublicIp = v;
-    },
-  });
-  /** 服务端判定：当前是否「在家」（出口 IP 命中家庭网络心跳） */
-  const homeNetworkMatch = computed({
-    get: () => configStore.homeNetworkMatch,
-    set: (v) => {
-      configStore.homeNetworkMatch = v;
     },
   });
   const ipFetchStatus = computed({
@@ -305,16 +268,10 @@ export const useMainStore = defineStore("main", () => {
     // Config
     appConfig,
     systemConfig,
-    forceNetworkMode,
     isExpandedMode,
     activeMusicPlayer,
     webPaginationActiveGroupId,
-    isLanModeInited,
-    isLanMode,
-    networkLatency,
-    effectiveIsLan,
     clientPublicIp,
-    homeNetworkMatch,
     ipFetchStatus,
     weatherNetworkStatus,
     detectWeatherNetworkStatus,
