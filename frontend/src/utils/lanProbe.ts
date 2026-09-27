@@ -162,3 +162,42 @@ export async function probeAnyReachable(
   // 全部被 Mixed Content 拦住时，交给上层回退到规则/手动
   return blockedCount > 0 && blockedCount === candidates.length ? "blocked" : "unreachable";
 }
+
+export type TargetDecisionInput = {
+  url?: string;
+  lanUrl?: string;
+  loggedIn: boolean;
+  forceMode: "auto" | "lan" | "wan" | "latency";
+  /** 全局推断结果（域名/IP/白名单/延迟），仅在探不出结论时使用 */
+  effectiveIsLan: boolean;
+  /** 本条书签内网地址的探测结论 */
+  probeOutcome: LanProbeOutcome;
+};
+
+/**
+ * 决定点开书签时用哪个地址 —— 「**内网优先，内网不通再走外网**」。
+ *
+ * | 情况 | 结果 |
+ * |---|---|
+ * | 未登录 / 没配内网地址 | 用外网地址 |
+ * | 自动模式 + 实测内网可达 | **用内网地址** |
+ * | 自动模式 + 实测内网不可达 | 用外网地址（回退） |
+ * | 自动模式 + 探不了（HTTPS 页面探 HTTP 地址被浏览器拦截） | 退回全局推断 |
+ * | 强制内网/外网/延迟档 | 按全局推断结果 |
+ */
+export function decideBookmarkTarget({
+  url = "",
+  lanUrl = "",
+  loggedIn,
+  forceMode,
+  effectiveIsLan,
+  probeOutcome,
+}: TargetDecisionInput): string {
+  if (!loggedIn || !lanUrl) return url;
+  if (forceMode === "auto") {
+    if (probeOutcome === "reachable") return lanUrl;
+    if (probeOutcome === "unreachable") return url;
+    return effectiveIsLan ? lanUrl : url;
+  }
+  return effectiveIsLan ? lanUrl : url;
+}

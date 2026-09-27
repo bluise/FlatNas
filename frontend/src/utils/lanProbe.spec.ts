@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   clearLanProbeCache,
+  decideBookmarkTarget,
   isMixedContentBlocked,
   peekLanProbe,
   probeAnyReachable,
@@ -146,5 +147,57 @@ describe("probeAnyReachable", () => {
       pageProtocol: "http:",
     });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("decideBookmarkTarget：内网优先，不通回退外网", () => {
+  const base = {
+    url: "https://nas.example.com",
+    lanUrl: "http://192.168.1.5:8080",
+    loggedIn: true,
+    forceMode: "auto" as const,
+    effectiveIsLan: false,
+  };
+
+  it("实测内网可达 → 用内网地址", () => {
+    expect(decideBookmarkTarget({ ...base, probeOutcome: "reachable" })).toBe(base.lanUrl);
+  });
+
+  it("实测内网不可达 → 回退外网地址", () => {
+    expect(decideBookmarkTarget({ ...base, probeOutcome: "unreachable" })).toBe(base.url);
+  });
+
+  it("实测不可达时会覆盖全局推断（全局说内网也照样回退外网）", () => {
+    expect(
+      decideBookmarkTarget({ ...base, effectiveIsLan: true, probeOutcome: "unreachable" }),
+    ).toBe(base.url);
+  });
+
+  it("探不出结论（Mixed Content 拦截）→ 退回全局推断", () => {
+    expect(decideBookmarkTarget({ ...base, probeOutcome: "blocked" })).toBe(base.url);
+    expect(decideBookmarkTarget({ ...base, probeOutcome: "blocked", effectiveIsLan: true })).toBe(
+      base.lanUrl,
+    );
+    expect(decideBookmarkTarget({ ...base, probeOutcome: "skipped", effectiveIsLan: true })).toBe(
+      base.lanUrl,
+    );
+  });
+
+  it("未登录 / 没配内网地址 → 只用外网地址", () => {
+    expect(decideBookmarkTarget({ ...base, loggedIn: false, probeOutcome: "reachable" })).toBe(base.url);
+    expect(decideBookmarkTarget({ ...base, lanUrl: "", probeOutcome: "reachable" })).toBe(base.url);
+  });
+
+  it("强制档按全局推断走，不做探测结论覆盖", () => {
+    expect(
+      decideBookmarkTarget({ ...base, forceMode: "wan", effectiveIsLan: false, probeOutcome: "reachable" }),
+    ).toBe(base.url);
+    expect(
+      decideBookmarkTarget({ ...base, forceMode: "lan", effectiveIsLan: true, probeOutcome: "unreachable" }),
+    ).toBe(base.lanUrl);
+  });
+
+  it("只配了内网地址时，回退结果是空串（由调用方决定不跳转/提示登录）", () => {
+    expect(decideBookmarkTarget({ ...base, url: "", probeOutcome: "unreachable" })).toBe("");
   });
 });

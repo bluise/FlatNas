@@ -22,7 +22,7 @@ import { generateLayout, type GridLayoutItem } from "../utils/gridLayout";
 import type { NavItem, WidgetConfig, NavGroup } from "@/types";
 import OverlayMotion from "@/components/base/OverlayMotion.vue";
 import { isInternalNetwork, getNetworkConfig, computeEffectiveNetworkMode, NETWORK_REASON_TEXT } from "@/utils/network";
-import { peekLanProbe, probeAnyReachable, probeLanUrl, type LanProbeOutcome } from "@/utils/lanProbe";
+import { decideBookmarkTarget, peekLanProbe, probeAnyReachable, probeLanUrl, type LanProbeOutcome } from "@/utils/lanProbe";
 import DOMPurify from "dompurify";
 const CHUNK_RELOAD_KEY = "flatnas:chunk-reload-at";
 const loadAsync = <T extends Component>(loader: AsyncComponentLoader<T>) =>
@@ -1664,21 +1664,22 @@ const handleCardClick = async (item: NavItem) => {
 
   let targetUrl = item.url;
 
-  // effectiveIsLan 已经封装了 forceMode (LAN/WAN/Latency/Auto) 的所有判断逻辑
-  // 直接使用它可以保证 UI 状态（是否显示内网标识）与实际跳转逻辑的一致性
-  if (store.isLogged && effectiveIsLan.value && item.lanUrl) {
-    targetUrl = item.lanUrl;
-  } else if (store.isLogged && typeof item.lanUrl === "string" && item.lanUrl && networkConfig.value.forceNetworkMode === "auto") {
-    // 全局判定为外网，但**这一个**书签的内网地址此时可能是通的
-    //（FlatNas 部署在公网 VPS 时的典型情况：服务端推断不出你在不在内网，只能由浏览器实测）。
-    // 页面加载后已经预热过缓存，这里通常直接命中、无需等待。
-    const lanUrl = item.lanUrl;
-    const cachedOutcome = peekLanProbe(lanUrl);
-    const outcome = cachedOutcome ?? (await probeLanUrl(lanUrl));
-    if (outcome === "reachable") {
-      targetUrl = lanUrl;
-    }
+  // 「内网优先，内网不通再走外网」：
+  // auto 模式下先看这条书签的内网地址实测通不通（页面加载后已预热缓存，通常无需等待），
+  // 通就用内网、不通就回退外网；探不出结论（HTTPS 页面探 HTTP 地址会被浏览器拦截）时才用全局推断。
+  const lanUrl = typeof item.lanUrl === "string" ? item.lanUrl : "";
+  let probeOutcome: LanProbeOutcome = "skipped";
+  if (store.isLogged && lanUrl && networkConfig.value.forceNetworkMode === "auto") {
+    probeOutcome = peekLanProbe(lanUrl) ?? (await probeLanUrl(lanUrl));
   }
+  targetUrl = decideBookmarkTarget({
+    url: item.url,
+    lanUrl,
+    loggedIn: store.isLogged,
+    forceMode: networkConfig.value.forceNetworkMode,
+    effectiveIsLan: effectiveIsLan.value,
+    probeOutcome,
+  });
 
   // 特殊情况：如果解析出的 targetUrl 为空（说明没有外网链接），
   // 但存在内网链接（说明是因为未登录被降级了，或者是压根没配外网链接）
