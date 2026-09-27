@@ -21,6 +21,15 @@ import { useIconPreloader } from "../composables/useIconPreloader";
 import { generateLayout, type GridLayoutItem } from "../utils/gridLayout";
 import type { NavItem, WidgetConfig, NavGroup } from "@/types";
 import OverlayMotion from "@/components/base/OverlayMotion.vue";
+import {
+  decideBookmarkTarget,
+  getCachedPermission,
+  getLocalNetworkPermission,
+  peekLanProbe,
+  probeLanUrl,
+  type LanProbeOutcome,
+  type LocalNetworkPermission,
+} from "@/utils/lanProbe";
 import DOMPurify from "dompurify";
 const CHUNK_RELOAD_KEY = "flatnas:chunk-reload-at";
 const loadAsync = <T extends Component>(loader: AsyncComponentLoader<T>) =>
@@ -452,8 +461,12 @@ const isSidebarEnabled = computed(() => {
 
 // IP/归属地缓存的 key（按访问域名区分，与网络判定无关）
 const networkScope = typeof window !== "undefined" ? window.location.hostname : "default";
-const fallbackOffer = ref<{ title: string; url: string } | null>(null);
+const fallbackOffer = ref<{ title: string; url: string; lanUrl: string } | null>(null);
 let fallbackOfferTimer: number | null = null;
+
+// 「本地网络访问」权限：granted 时探测结论完全可信，判定就是全自动的
+const localNetworkPermission = ref<LocalNetworkPermission | null>(getCachedPermission());
+const autoSwitchBusy = ref(false);
 
 const clearFallbackOffer = () => {
   if (fallbackOfferTimer) {
@@ -462,14 +475,54 @@ const clearFallbackOffer = () => {
   }
 };
 
-const offerWanFallback = (title: string, wanUrl: string) => {
+const offerWanFallback = (title: string, wanUrl: string, lanUrl: string) => {
   if (!wanUrl) return;
   clearFallbackOffer();
-  fallbackOffer.value = { title, url: wanUrl };
+  fallbackOffer.value = { title, url: wanUrl, lanUrl };
   fallbackOfferTimer = window.setTimeout(() => {
     fallbackOffer.value = null;
     fallbackOfferTimer = null;
-  }, 15000);
+  }, 20000);
+};
+
+const autoToast = ref("");
+let autoToastTimer: number | null = null;
+const showAutoToast = (message: string) => {
+  autoToast.value = message;
+  if (autoToastTimer) window.clearTimeout(autoToastTimer);
+  autoToastTimer = window.setTimeout(() => {
+    autoToast.value = "";
+    autoToastTimer = null;
+  }, 6000);
+};
+
+/**
+ * 手动把自动判定打开：用一次真实的探测去触发浏览器的「本地网络访问」授权，
+ * 授权后探测结果就完全可信（可达走内网、不可达走外网，不再需要这条横幅）。
+ */
+const enableAutoSwitch = async () => {
+  const offer = fallbackOffer.value;
+  if (!offer || autoSwitchBusy.value) return;
+  autoSwitchBusy.value = true;
+  try {
+    const outcome = await probeLanUrl(offer.lanUrl, { force: true });
+    localNetworkPermission.value = getCachedPermission();
+    if (outcome === "reachable") {
+      showAutoToast("已启用自动判定：当前走内网地址");
+      return;
+    }
+    if (outcome === "unreachable") {
+      clearFallbackOffer();
+      const url = offer.url;
+      fallbackOffer.value = null;
+      showAutoToast("已启用自动判定：当前不在内网，已切到外网地址");
+      window.open(url, "_blank");
+      return;
+    }
+    showAutoToast("浏览器没有放行「本地网络访问」，请在弹窗里点「允许」后重试");
+  } finally {
+    autoSwitchBusy.value = false;
+  }
 };
 
 const openFallbackOffer = () => {
@@ -1223,6 +1276,9 @@ const fetchWithTimeout = (input: RequestInfo | URL, init: RequestInit = {}, time
 };
 
 onMounted(() => {
+  // 预热内网探测：权限已授予时提前测一遍，点击书签就不用等了。
+  // 权限还没给的话不主动探（避免在页面加载时无端弹授权框，那是点击时才该发生的事）。
+  void prewarmLanProbe();
   fetchIp(true);
   ipInterval = window.setInterval(() => fetchIp(), 3600000);
   const ensureSearchFocus = () => {
@@ -1488,6 +1544,72 @@ watch(
 //   openDeleteConfirm(id)
 // }
 let skipNextCardClickId: string | null = null;
+/** Lucky STUN 端口替换：域名一致且当前不是内网 IP 访问时，换成 STUN 打洞出来的端口 */
+const applyStunPort = (input: string): string => {
+  let targetUrl = input;
+  const stunData = store.luckyStunData?.data;
+  if (stunData?.stun === "success" && stunData?.port) {
+    try {
+      const urlObj = new URL(targetUrl);
+      if (urlObj.hostname === window.location.hostname && !isPrivateHost(window.location.hostname)) {
+        urlObj.port = String(stunData.port);
+        targetUrl = urlObj.toString();
+      }
+    } catch {
+      // 相对路径或非法 URL：保持原样
+    }
+  }
+  return targetUrl;
+};
+
+/** 在已经开好的新标签页里跳转（保留用户手势，避免被弹窗拦截） */
+const navigateTab = (tab: Window | null, url: string) => {
+  if (tab && !tab.closed) {
+    try {
+      tab.location.href = url;
+      return;
+    } catch {
+      // 极少数情况下拿不到句柄，退化成再开一个
+    }
+  }
+  window.open(url, "_blank");
+};
+
+/**
+ * 预热：把当前所有书签的内网地址先探一遍写进缓存。
+ *
+ * 只在「权限已经给过」或「浏览器没有这道权限门」时才做 ——
+ * 否则会在页面加载时无端弹授权框（那应该发生在用户真的点书签的时候）。
+ */
+const prewarmLanProbe = async () => {
+  if (!store.isLogged) return;
+  const permission = await getLocalNetworkPermission();
+  localNetworkPermission.value = permission;
+  if (permission !== "granted" && permission !== "unsupported") return;
+  const urls = Array.from(
+    new Set(
+      (store.groups || [])
+        .flatMap((group) => (group.items || []).map((item) => item?.lanUrl))
+        .filter((url): url is string => typeof url === "string" && url.trim().length > 0),
+    ),
+  ).slice(0, 12);
+  for (const url of urls) {
+    await probeLanUrl(url);
+  }
+};
+
+/**
+ * 点书签：内网优先，并且**能测就实测**。
+ *
+ * 探测链路见 utils/lanProbe.ts（已用真实 Chromium 实测过）：
+ * 公网 HTTPS 页面 `fetch(http://内网地址, {mode:'no-cors'})` 是可以成功的，
+ * Mixed Content 只警告不拦；真正需要的是浏览器「本地网络访问」权限 ——
+ * 首次探测时浏览器会弹一次授权，允许之后判定就完全自动。
+ *
+ * - 实测可达 → 内网地址
+ * - 实测不可达（权限已授权）→ 外网地址
+ * - 测不出来（权限没给 / 浏览器不支持）→ 内网优先，并给出「改用外网」的退路
+ */
 const handleCardClick = async (item: NavItem) => {
   if (skipNextCardClickId === item.id) {
     skipNextCardClickId = null;
@@ -1495,49 +1617,40 @@ const handleCardClick = async (item: NavItem) => {
   }
   if (isEditMode.value) return;
 
-  // 内网优先：不再做任何「在不在家」的判定。
-  // 配了内网地址就直接用内网地址，同时在页面顶部挂一条「打不开就切外网」的退路。
-  const lanUrl = typeof item.lanUrl === "string" ? item.lanUrl : "";
-  const wanUrl = typeof item.url === "string" ? item.url : "";
-  let targetUrl = item.url;
+  const lanUrl = typeof item.lanUrl === "string" ? item.lanUrl.trim() : "";
+  const wanUrl = typeof item.url === "string" ? item.url.trim() : "";
 
-  if (store.isLogged && lanUrl) {
-    targetUrl = lanUrl;
-    offerWanFallback(item.title || "", wanUrl);
-  }
-
-  // 未登录时内网地址不给用（可能暴露内网拓扑），提示登录
-  if (!targetUrl && lanUrl && !store.isLogged) {
-    showLoginModal.value = true;
+  // 未登录不给用内网地址（避免向前端暴露内网拓扑）
+  const usableLan = store.isLogged ? lanUrl : "";
+  if (!usableLan) {
+    if (!wanUrl && lanUrl && !store.isLogged) {
+      showLoginModal.value = true;
+      return;
+    }
+    if (!wanUrl) return;
+    navigateTab(null, applyStunPort(wanUrl));
     return;
   }
 
-  // 如果确实没有链接可跳，则不做反应
-  if (!targetUrl) return;
-
-  // Lucky STUN Port Replacement
-  // 当配置了 Lucky STUN 且当前访问域名与卡片链接域名一致时，自动替换端口
-  // 逻辑升级 V2：
-  // 1. 默认行为：只要域名一致，就认为是“同一台机器”，默认尝试替换端口（为了解决从 STUN 端口访问时，卡片仍是内网端口的问题）。
-  // 2. 例外处理：如果用户显式勾选了 skipLuckyStun（禁止替换），则保持原样（用于 Plex 等其他服务）。
-  const stunData = store.luckyStunData?.data;
-  if (stunData?.stun === "success" && stunData?.port) {
-    try {
-      const urlObj = new URL(targetUrl);
-      if (urlObj.hostname === window.location.hostname) {
-        // 只要当前不是内网 IP 访问，就自动替换端口
-        // (防止在局域网用 IP 访问时，被错误替换成公网端口导致无法访问)
-        if (!isPrivateHost(window.location.hostname)) {
-          urlObj.port = String(stunData.port);
-          targetUrl = urlObj.toString();
-        }
-      }
-    } catch {
-      // Ignore relative or invalid URLs
-    }
+  // 有缓存就直接用，点击零延迟
+  const cached = peekLanProbe(usableLan);
+  const target = cached ? decideBookmarkTarget(usableLan, wanUrl, cached) : "";
+  if (cached) {
+    if (cached === "unknown") offerWanFallback(item.title || "", wanUrl, usableLan);
+    navigateTab(null, applyStunPort(target));
+    return;
   }
 
-  window.open(targetUrl, "_blank");
+  // 需要现测：先同步开一个标签页占住用户手势，测完再决定跳哪里
+  // （否则 await 之后 window.open 会被当成非用户手势而拦截）
+  const pending = window.open("about:blank", "_blank");
+  const outcome = await probeLanUrl(usableLan);
+  const finalTarget = decideBookmarkTarget(usableLan, wanUrl, outcome) || wanUrl;
+  if (outcome === "unknown") {
+    // 测不出来：内网优先，同时给出退路
+    offerWanFallback(item.title || "", wanUrl, usableLan);
+  }
+  navigateTab(pending, applyStunPort(finalTarget));
 };
 
 const handleDockerAction = async (item: NavItem, action: string) => {
@@ -2720,9 +2833,12 @@ onUnmounted(() => {
     class="min-h-dvh relative overflow-hidden flex flex-col pt-[env(safe-area-inset-top)]"
     :class="{ 'empire-theme': store.appConfig.empireMode }"
   >
-    <!-- 内网地址兜底提示：网络判定已移除，点书签一律先开内网地址；
-         浏览器不允许 HTTPS 页面探测 http 内网地址，所以「不通自动走外网」做不到，
-         这里给一键切换。 -->
+    <!--
+      内网地址兜底提示。
+      正常情况下判定是全自动的（实测内网可达 → 内网，不可达 → 外网）；
+      只有「测不出来」（浏览器还没授予本地网络访问权限）时才会出现这条，
+      给出一键切外网，以及「启用自动判定」的入口。
+    -->
     <Transition
       enter-active-class="transition-all duration-300 ease-out"
       enter-from-class="opacity-0 -translate-y-4"
@@ -2746,6 +2862,16 @@ onUnmounted(() => {
           改用外网地址
         </button>
         <button
+          v-if="localNetworkPermission !== 'granted'"
+          type="button"
+          :disabled="autoSwitchBusy"
+          @click="enableAutoSwitch"
+          class="shrink-0 px-3 py-1 rounded-lg bg-amber-700/60 text-white text-xs font-bold hover:bg-amber-700/80 transition-colors disabled:opacity-60"
+          title="让浏览器允许 FlatNas 探测内网地址；授权后内外网切换就是全自动的"
+        >
+          {{ autoSwitchBusy ? "检测中…" : "启用自动判定" }}
+        </button>
+        <button
           type="button"
           @click="fallbackOffer = null"
           class="shrink-0 w-5 h-5 flex items-center justify-center rounded-full hover:bg-white/20 transition-colors"
@@ -2753,6 +2879,22 @@ onUnmounted(() => {
         >
           ×
         </button>
+      </div>
+    </Transition>
+
+    <Transition
+      enter-active-class="transition-all duration-300 ease-out"
+      enter-from-class="opacity-0 -translate-y-4"
+      enter-to-class="opacity-100 translate-y-0"
+      leave-active-class="transition-all duration-200 ease-in"
+      leave-from-class="opacity-100 translate-y-0"
+      leave-to-class="opacity-0 -translate-y-4"
+    >
+      <div
+        v-if="autoToast"
+        class="fixed top-4 left-1/2 -translate-x-1/2 z-[112] bg-gray-900/95 backdrop-blur-sm text-white px-4 py-2 rounded-xl shadow-lg text-sm font-medium max-w-[92vw]"
+      >
+        {{ autoToast }}
       </div>
     </Transition>
 
