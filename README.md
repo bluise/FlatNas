@@ -5,9 +5,9 @@
 [![Docker Image](https://img.shields.io/badge/Docker-bluise1%2Fflatnas-2496ED?style=flat&logo=docker&logoColor=white)](https://hub.docker.com/r/bluise1/flatnas)
 
 > **关于本仓库**
-> 这是 [Garry-QD/FlatNas](https://github.com/Garry-QD/FlatNas)（AGPL-3.0）的个人构建版本，版本号 `1.6.3`，
+> 这是 [Garry-QD/FlatNas](https://github.com/Garry-QD/FlatNas)（AGPL-3.0）的个人构建版本，版本号 `1.6.4`，
 > 额外包含**待办事项与备忘录的数据一致性修复**（丢内容、"已删除的又冒出来" 等问题），详见 [修复说明](#本版修复内容)。
-> 预构建镜像：`bluise1/flatnas:latest` / `bluise1/flatnas:1.6.3`（支持 amd64 / arm64 / armv7）。
+> 预构建镜像：`bluise1/flatnas:latest` / `bluise1/flatnas:1.6.4`（支持 amd64 / arm64 / armv7）。
 
 FlatNas 是一个轻量级、高度可定制的个人导航页与仪表盘系统。它基于 Vue 3 与 Go(Gin) 构建，旨在为 NAS 用户、极客和开发者提供一个优雅的浏览器起始页。
 交流QQ群:613835409
@@ -332,7 +332,7 @@ export default {
 
 ## 🔧 本版修复内容
 
-相对上游 `1.2.6`，本构建（`1.6.3`）修复了待办与备忘录「丢内容、已删除的又冒出来」等一系列数据一致性问题：
+相对上游 `1.2.6`，本构建（`1.6.4`）修复了待办与备忘录「丢内容、已删除的又冒出来」等一系列数据一致性问题：
 
 **待办事项**
 
