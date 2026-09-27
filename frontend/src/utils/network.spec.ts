@@ -3,6 +3,7 @@ import {
   classifyNetworkTarget,
   computeEffectiveNetworkMode,
   getNetworkConfig,
+  isHomeClientIp,
   isInternalNetwork,
 } from "./network";
 
@@ -137,5 +138,75 @@ describe("computeEffectiveNetworkMode", () => {
     expect(
       computeEffectiveNetworkMode("nas.example.com", "192.168.1.20", "remote", 60, {}).isLan,
     ).toBe(false);
+  });
+});
+
+describe("isHomeClientIp：家庭网络出口 IP 匹配", () => {
+  it("精确匹配", () => {
+    expect(isHomeClientIp("1.2.3.4", "1.2.3.4")).toBe(true);
+    expect(isHomeClientIp("1.2.3.5", "1.2.3.4")).toBe(false);
+  });
+
+  it("支持前缀写法（家宽动态 IP）", () => {
+    expect(isHomeClientIp("1.2.3.99", "1.2.3.")).toBe(true);
+    expect(isHomeClientIp("1.2.3.99", "1.2.3")).toBe(true);
+    expect(isHomeClientIp("1.2.30.99", "1.2.3.")).toBe(false);
+    expect(isHomeClientIp("1.2.30.99", "1.2.3")).toBe(false);
+  });
+
+  it("多行 + 注释 + 空行", () => {
+    const list = ["# 家里", "1.2.3.4", "  ", "5.6.7.8", ""].join("\n");
+    expect(isHomeClientIp("1.2.3.4", list)).toBe(true);
+    expect(isHomeClientIp("5.6.7.8", list)).toBe(true);
+    expect(isHomeClientIp("9.9.9.9", list)).toBe(false);
+  });
+
+  it("空值/空列表不匹配", () => {
+    expect(isHomeClientIp("", "1.2.3.4")).toBe(false);
+    expect(isHomeClientIp("1.2.3.4", "")).toBe(false);
+    expect(isHomeClientIp("1.2.3.4", "# 只有注释")).toBe(false);
+  });
+});
+
+describe("家庭网络判定（HTTPS 部署下的可用路径）", () => {
+  const vps = { hostname: "flatnas.tangzhiguo.cn", clientIp: "1.2.3.4", clientIpSource: "header" };
+
+  it("出口 IP 命中家庭网络 → 判定内网（不需要浏览器探测）", () => {
+    const r = computeEffectiveNetworkMode(vps.hostname, vps.clientIp, vps.clientIpSource, 30, {
+      homePublicIps: "1.2.3.4",
+    });
+    expect(r.isLan).toBe(true);
+    expect(r.reason).toBe("home_ip_match");
+  });
+
+  it("前缀写法也命中", () => {
+    const r = computeEffectiveNetworkMode(vps.hostname, "1.2.3.200", vps.clientIpSource, 30, {
+      homePublicIps: "1.2.3.",
+    });
+    expect(r.isLan).toBe(true);
+  });
+
+  it("出口 IP 不在列表里 → 仍然外网", () => {
+    const r = computeEffectiveNetworkMode(vps.hostname, "9.9.9.9", vps.clientIpSource, 30, {
+      homePublicIps: "1.2.3.4",
+    });
+    expect(r.isLan).toBe(false);
+    expect(r.reason).toBe("default_wan");
+  });
+
+  it("客户端 IP 来源不可信时不采信（避免代理头伪造）", () => {
+    const r = computeEffectiveNetworkMode(vps.hostname, "1.2.3.4", "remoteAddr", 30, {
+      homePublicIps: "1.2.3.4",
+    });
+    expect(r.isLan).toBe(false);
+  });
+
+  it("强制档优先于家庭网络判定", () => {
+    const r = computeEffectiveNetworkMode(vps.hostname, "1.2.3.4", vps.clientIpSource, 30, {
+      homePublicIps: "1.2.3.4",
+      forceNetworkMode: "wan",
+    });
+    expect(r.isLan).toBe(false);
+    expect(r.reason).toBe("force_wan");
   });
 });

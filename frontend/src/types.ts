@@ -121,6 +121,8 @@ export interface AppConfig {
   forceNetworkMode?: "auto" | "lan" | "wan" | "latency";
   latencyThresholdMs?: number;
   whitelistLatencyMode?: boolean;
+  /** 家庭网络的公网出口 IP（每行一个，支持前缀），命中则判定为「在家」并使用内网地址 */
+  homePublicIps?: string;
   customTitle: string;
   titleAlign: "left" | "center" | "right" | string;
   titleSize: number;

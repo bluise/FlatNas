@@ -17,17 +17,22 @@ export function detectNetworkByLatency(
 
 export function isInternalNetwork(url: unknown, internalDomains?: string, networkRules?: string): boolean;
 
+/** 客户端公网出口 IP 是否命中「家庭网络 IP」列表 */
+export function isHomeClientIp(clientIp: string, homePublicIps?: string): boolean;
+
 export function getNetworkConfig(appConfig?: {
   internalDomains?: string;
   networkRules?: string;
   networkPresets?: Record<string, boolean>;
   whitelistLatencyMode?: boolean;
+  homePublicIps?: string;
   latencyThresholdMs?: number;
 }, localForceNetworkMode?: "auto" | "lan" | "wan" | "latency"): {
   internalDomains: string;
   networkRules: string;
   forceNetworkMode: "auto" | "lan" | "wan" | "latency";
   whitelistLatencyMode: boolean;
+  homePublicIps: string;
   latencyThresholdMs: number;
 };
 
@@ -46,6 +51,8 @@ export function computeEffectiveNetworkMode(
     networkRules?: string;
     forceNetworkMode?: "auto" | "lan" | "wan" | "latency";
     whitelistLatencyMode?: boolean;
+    /** 家庭网络公网出口 IP（每行一个，支持前缀），命中即认为「在家」 */
+    homePublicIps?: string;
     latencyThresholdMs?: number;
     /** 浏览器侧内网地址可达性探测结论（FlatNas 部署在公网 VPS 时的关键判据） */
     lanProbeOutcome?: LanProbeOutcome;

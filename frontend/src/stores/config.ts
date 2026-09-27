@@ -18,6 +18,8 @@ export const useConfigStore = defineStore("config", () => {
   const isLanMode = ref(false);
   const networkLatency = ref(0);
   const effectiveIsLan = ref(false);
+  // 当前客户端的公网出口 IP（由 /api/ip 得到），设置页用它一键填入「家庭网络 IP」
+  const clientPublicIp = ref("");
   const ipFetchStatus = ref<"success" | "error" | "loading">("loading");
   const weatherNetworkStatus = ref<"online" | "degraded" | "offline">("online");
   const isPageUnloading = ref(false);
@@ -252,6 +254,7 @@ export const useConfigStore = defineStore("config", () => {
     isLanMode,
     networkLatency,
     effectiveIsLan,
+    clientPublicIp,
     ipFetchStatus,
     weatherNetworkStatus,
     isPageUnloading,

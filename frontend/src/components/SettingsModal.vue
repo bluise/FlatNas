@@ -94,6 +94,20 @@ const toggleWhitelistLatency = () => {
   store.appConfig.whitelistLatencyMode = !store.appConfig.whitelistLatencyMode;
   store.markDirty();
 };
+/** 把当前客户端出口 IP 追加进「家庭网络 IP」列表（在家时点一下即可） */
+const useCurrentNetworkAsHome = () => {
+  const ip = String(store.clientPublicIp || "").trim();
+  if (!ip) return;
+  const current = String(store.appConfig.homePublicIps || "");
+  const lines = current
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (!lines.includes(ip)) lines.push(ip);
+  store.appConfig.homePublicIps = lines.join("\n");
+  store.markDirty();
+};
+
 const syncLatencyThresholdDraft = () => {
   const v = store.appConfig.latencyThresholdMs ?? DEFAULT_LATENCY_THRESHOLD_MS;
   latencyThresholdDraft.value = String(v);
@@ -3681,6 +3695,54 @@ watch(activeTab, (val) => {
                   class="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs focus:border-gray-900 outline-none font-mono"
                   :placeholder="$t('settings.extraSections.placeholderDomainWhitelist')"
                 ></textarea>
+              </div>
+            </div>
+
+            <!-- 家庭网络识别：服务端按客户端出口 IP 判断，HTTPS 场景同样可用 -->
+            <div class="bg-gray-50 border border-gray-100 rounded-xl p-4 space-y-3">
+              <h5 class="text-sm font-medium text-gray-700">{{ $t('settings.extraSections.homeNetworkTitle') }}</h5>
+              <div class="flex items-start gap-2">
+                <span
+                  class="text-xs text-gray-500 font-medium border border-gray-200 rounded px-1.5 py-0.5 mt-0.5"
+                  >注</span
+                >
+                <p class="text-xs text-gray-600 leading-relaxed">
+                  {{ $t('settings.extraSections.homeNetworkHint') }}
+                </p>
+              </div>
+              <div class="space-y-2">
+                <label class="block text-sm font-medium text-gray-700">{{
+                  $t('settings.extraSections.homeNetworkIps')
+                }}</label>
+                <textarea
+                  v-model="store.appConfig.homePublicIps"
+                  @change="store.markDirty()"
+                  rows="3"
+                  class="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs focus:border-gray-900 outline-none font-mono"
+                  :placeholder="$t('settings.extraSections.placeholderHomeNetworkIps')"
+                ></textarea>
+              </div>
+              <div class="flex items-center gap-3 flex-wrap">
+                <button
+                  type="button"
+                  @click="useCurrentNetworkAsHome"
+                  :disabled="!store.clientPublicIp"
+                  class="px-3 py-1.5 rounded-lg text-xs font-bold transition-colors border whitespace-nowrap"
+                  :class="
+                    store.clientPublicIp
+                      ? 'bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100'
+                      : 'bg-white text-gray-400 border-gray-200 cursor-not-allowed'
+                  "
+                >
+                  {{ $t('settings.extraSections.homeNetworkUseCurrent') }}
+                </button>
+                <span class="text-[11px] text-gray-500">
+                  {{
+                    $t('settings.extraSections.homeNetworkCurrent', {
+                      ip: store.clientPublicIp || '-',
+                    })
+                  }}
+                </span>
               </div>
             </div>
 

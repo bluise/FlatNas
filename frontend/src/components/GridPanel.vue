@@ -473,12 +473,14 @@ const networkDecisionOptions = (cfg: {
   networkRules: string;
   forceNetworkMode: "auto" | "lan" | "wan" | "latency";
   whitelistLatencyMode: boolean;
+  homePublicIps: string;
   latencyThresholdMs: number;
 }) => ({
   internalDomains: cfg.internalDomains,
   networkRules: cfg.networkRules,
   forceNetworkMode: cfg.forceNetworkMode,
   whitelistLatencyMode: cfg.whitelistLatencyMode,
+  homePublicIps: cfg.homePublicIps,
   latencyThresholdMs: cfg.latencyThresholdMs,
   lanProbeOutcome: lanProbeOutcome.value,
 });
@@ -2731,6 +2733,7 @@ const fetchIp = async (force = false) => {
         if (Date.now() - timestamp < CACHE_DURATION) {
           ipInfo.value = data;
           lastKnownClientIp.value = data?.clientIp || "";
+          store.clientPublicIp = lastKnownClientIp.value;
           lastKnownClientIpSource.value = data?.clientIpSource || "";
           const cfg = networkConfig.value;
           const result = computeEffectiveNetworkMode(
@@ -2794,6 +2797,7 @@ const fetchIp = async (force = false) => {
       ipInfo.value.clientIp = data.clientIp || "";
       ipInfo.value.clientIpSource = data.clientIpSource || "";
       lastKnownClientIp.value = ipInfo.value.clientIp;
+      store.clientPublicIp = lastKnownClientIp.value;
       lastKnownClientIpSource.value = ipInfo.value.clientIpSource;
 
       const cfg = networkConfig.value;

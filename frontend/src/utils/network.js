@@ -169,6 +169,37 @@ export const buildRulesFromPresets = (presets = {}) => {
   return Array.from(new Set(lines)).join("\n");
 };
 
+/**
+ * 家庭网络「公网出口 IP」匹配。
+ *
+ * 为什么需要它：FlatNas 部署在公网 VPS、且以 HTTPS 访问时，
+ * 浏览器无法探测内网地址（HTTPS 页面探 HTTP 会被 Mixed Content 拦死）。
+ * 但「你在不在家」这件事服务端本来就知道 —— VPS 能看到你的公网出口 IP
+ * （/api/ip 已经在返回 clientIp / clientIpSource）。把你家的出口 IP 记下来比对即可，
+ * 全程不需要浏览器探测；而跳转 http://192.168.x.x 是顶级导航，不受 Mixed Content 限制。
+ *
+ * 支持精确 IP 与前缀写法（家宽动态 IP 常见）：
+ *   1.2.3.4     精确匹配
+ *   1.2.3.      匹配 1.2.3.x
+ *   1.2.3       匹配 1.2.3.x（等价于上面）
+ *   # 注释行会被忽略
+ */
+const parseIpRules = (rawRules) =>
+  String(rawRules || "")
+    .split("\n")
+    .map((line) => String(line || "").trim().toLowerCase())
+    .filter((line) => line && !line.startsWith("#"));
+
+export const isHomeClientIp = (clientIp, homePublicIps = "") => {
+  const ip = String(clientIp || "").trim().toLowerCase();
+  if (!ip) return false;
+  for (const rule of parseIpRules(homePublicIps)) {
+    if (ip === rule) return true;
+    if (rule.endsWith(".") ? ip.startsWith(rule) : ip.startsWith(`${rule}.`)) return true;
+  }
+  return false;
+};
+
 const isDomainInWhitelist = (hostname, whitelistStr) => {
   if (!hostname || !whitelistStr) return false;
   const lines = whitelistStr.split("\n").map(l => l.trim().toLowerCase()).filter(Boolean);
@@ -184,12 +215,13 @@ const isDomainInWhitelist = (hostname, whitelistStr) => {
 export const getNetworkConfig = (appConfig = {}, localForceNetworkMode) => {
   const internalDomains = typeof appConfig.internalDomains === "string" ? appConfig.internalDomains : "";
   const whitelistLatencyMode = appConfig.whitelistLatencyMode === true;
+  const homePublicIps = typeof appConfig.homePublicIps === "string" ? appConfig.homePublicIps : "";
   const mode = typeof localForceNetworkMode === "string" ? localForceNetworkMode : "";
   const forceNetworkMode = ["auto", "lan", "wan", "latency"].includes(mode) ? mode : "auto";
   const raw = appConfig.latencyThresholdMs;
   const base = typeof raw === "number" && Number.isFinite(raw) ? Math.trunc(raw) : 50;
   const latencyThresholdMs = Math.min(30000, Math.max(10, base));
-  return { internalDomains, whitelistLatencyMode, forceNetworkMode, latencyThresholdMs };
+  return { internalDomains, whitelistLatencyMode, homePublicIps, forceNetworkMode, latencyThresholdMs };
 };
 
 export const computeEffectiveNetworkMode = (
@@ -202,6 +234,8 @@ export const computeEffectiveNetworkMode = (
     whitelistLatencyMode = false,
     forceNetworkMode = "auto",
     latencyThresholdMs = 50,
+    // 家庭网络公网出口 IP（每行一个，支持前缀）；命中即认为「在家」
+    homePublicIps = "",
     // 浏览器侧「内网地址可达性」探测结论（见 utils/lanProbe.ts）。
     // FlatNas 部署在公网 VPS 时，服务端看不到你的内网，只有浏览器能直接去试内网地址通不通，
     // 因此这是那种部署下唯一可靠的判据。
@@ -229,6 +263,11 @@ export const computeEffectiveNetworkMode = (
   // 浏览器实测内网地址可达：比任何推断都可靠
   if (lanProbeOutcome === "reachable") return { isLan: true, reason: "lan_probe_reachable", measuredLatencyMs };
 
+  // 客户端出口 IP 命中「家庭网络 IP」→ 在家（服务端事实，HTTPS 场景下也可用）
+  if (canTrustClientIp && homePublicIps && isHomeClientIp(clientIp, homePublicIps)) {
+    return { isLan: true, reason: "home_ip_match", measuredLatencyMs };
+  }
+
   // 域名本身是内网地址
   if (hostnameIntrinsicLan) return { isLan: true, reason: "hostname_intrinsic", measuredLatencyMs };
 
@@ -255,6 +294,7 @@ export const NETWORK_REASON_TEXT = {
   force_latency_lan: "延迟低于阈值（延迟模式）",
   force_latency_wan: "延迟高于阈值（延迟模式）",
   lan_probe_reachable: "浏览器实测内网地址可达",
+  home_ip_match: "客户端出口 IP 属于家庭网络",
   hostname_intrinsic: "访问地址本身是内网地址",
   whitelist_latency_ok: "命中白名单且延迟低",
   whitelist_latency_high: "命中白名单但延迟高",

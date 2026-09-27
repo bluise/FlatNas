@@ -81,6 +81,13 @@ export const useMainStore = defineStore("main", () => {
       configStore.effectiveIsLan = v;
     },
   });
+  /** 当前客户端公网出口 IP（设置页「把当前网络设为家庭网络」用） */
+  const clientPublicIp = computed({
+    get: () => configStore.clientPublicIp,
+    set: (v) => {
+      configStore.clientPublicIp = v;
+    },
+  });
   const ipFetchStatus = computed({
     get: () => configStore.ipFetchStatus,
     set: (v) => {
@@ -299,6 +306,7 @@ export const useMainStore = defineStore("main", () => {
     isLanMode,
     networkLatency,
     effectiveIsLan,
+    clientPublicIp,
     ipFetchStatus,
     weatherNetworkStatus,
     detectWeatherNetworkStatus,
