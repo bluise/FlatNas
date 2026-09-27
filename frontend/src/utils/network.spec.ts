@@ -32,7 +32,8 @@ describe("getNetworkConfig", () => {
   it("保留 latency 强制档（此前会被静默降级成 auto）", () => {
     expect(getNetworkConfig({}, "latency").forceNetworkMode).toBe("latency");
     expect(getNetworkConfig({}, "lan").forceNetworkMode).toBe("lan");
-    expect(getNetworkConfig({}, "啥也不是").forceNetworkMode).toBe("auto");
+    // 持久化里可能是历史脏值，必须回落到 auto（用 as 绕过联合类型，模拟运行时的意外值）
+    expect(getNetworkConfig({}, "bogus" as unknown as "auto").forceNetworkMode).toBe("auto");
   });
 
   it("把白名单延迟开关带出来（此前各调用点都漏传）", () => {
